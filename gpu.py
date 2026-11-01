@@ -10,6 +10,7 @@ from dataclasses import dataclass
 import io
 import math
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 import time
@@ -98,10 +99,27 @@ class GPUProcess:
     pid: int
     name: str
     memory_used: float | None
+    command: str | None = None
+    cwd: str | None = None
+
+
+def _process_details(pid):
+    """Read visible Linux process details; processes may exit between snapshots."""
+    directory = Path(f"/proc/{pid}")
+    try:
+        argv = (directory / "cmdline").read_bytes().removesuffix(b"\0").split(b"\0")
+        command = shlex.join(part.decode(errors="replace") for part in argv) if any(argv) else None
+    except OSError:
+        command = None
+    try:
+        cwd = str((directory / "cwd").readlink())
+    except OSError:
+        cwd = None
+    return command, cwd
 
 
 def query_processes(index):
-    """Read compute processes for the selected GPU without inspecting command lines."""
+    """Read compute processes and available command paths for the selected GPU."""
     try:
         result = subprocess.run(
             ["nvidia-smi", "-i", str(index),
@@ -114,12 +132,13 @@ def query_processes(index):
     if result.returncode:
         raise GPUReadError(tr("Process query failed", "进程读取失败"))
     try:
-        return [
-            GPUProcess(int(pid), Path(name.strip()).name, _number(memory))
+        rows = [
+            (int(pid), name.strip(), _number(memory))
             for pid, name, memory in csv.reader(io.StringIO(result.stdout), skipinitialspace=True)
         ]
     except (ValueError, csv.Error) as exc:
         raise GPUReadError(tr("Could not parse process data", "进程数据无法解析")) from exc
+    return [GPUProcess(pid, name, memory, *_process_details(pid)) for pid, name, memory in rows]
 
 
 def _field(value, width, precision):
@@ -197,6 +216,9 @@ class Monitor:
         self.columns = 1
         self.page_size = 1
         self.details = False
+        self.detail_offset = 0
+        self.detail_page_size = 1
+        self.detail_total = 0
         self.process_gpu = None
         self.processes = []
         self.process_error = None
@@ -224,6 +246,8 @@ class Monitor:
         self.last_sample = now if self.gpus else None
         self.selected = next((i for i, gpu in enumerate(self.gpus) if gpu.index == selected_id),
                              min(self.selected, max(0, len(self.gpus) - 1)))
+        if not self.gpus or self.gpus[self.selected].index != selected_id:
+            self.detail_offset = 0
         self.process_gpu = None
         self.processes = []
         self.process_error = None
@@ -244,18 +268,31 @@ class Monitor:
             if (y >= 1 and x >= 0 and line < self.tile_height and cell < self.tile_width
                     and column < self.columns
                     and self.page_start <= index < min(len(self.gpus), self.page_start + self.page_size)):
+                if self.selected != index:
+                    self.detail_offset = 0
                 self.selected = index
             return False
+        if self.details:
+            scroll = {"MOUSE_SCROLL_UP": -3, "MOUSE_SCROLL_DOWN": 3,
+                      "KEY_PGUP": -self.detail_page_size, "KEY_PGDOWN": self.detail_page_size,
+                      "KEY_HOME": -self.detail_total, "KEY_END": self.detail_total}
+            step = scroll.get(name or key) if isinstance(name or key, str) else None
+            if step is not None:
+                self.detail_offset = max(0, min(self.detail_offset + step,
+                                               self.detail_total - self.detail_page_size))
+                return False
         if name in {"MOUSE_SCROLL_UP", "MOUSE_SCROLL_DOWN"}:
             key = "KEY_UP" if name == "MOUSE_SCROLL_UP" else "KEY_DOWN"
         if key in {"q", "KEY_ESCAPE"}:
             return True
         if key == "d":
             self.details = not self.details
+            self.detail_offset = 0
         steps = {"KEY_UP": -self.columns, "KEY_DOWN": self.columns,
                  "KEY_LEFT": -1, "KEY_RIGHT": 1,
                  "KEY_PGUP": -self.page_size, "KEY_PGDOWN": self.page_size}
         if key in steps:
+            self.detail_offset = 0
             self.selected = min(max(0, self.selected + steps[key]), max(0, len(self.gpus) - 1))
         return False
 
@@ -268,9 +305,9 @@ class Monitor:
         """Height needed to print every GPU in a single snapshot."""
         columns, _ = self._layout(width)
         rows = max(1, math.ceil(len(self.gpus) / columns))
-        return rows * 4 + 1 + len(self._detail_lines())
+        return rows * 4 + 1 + len(self._detail_lines(width))
 
-    def _detail_lines(self):
+    def _detail_lines(self, width=None):
         if not self.details or not self.gpus:
             return []
         gpu = self.gpus[self.selected]
@@ -287,16 +324,18 @@ class Monitor:
             lines.append(Text(tr("Compute processes · none", "计算进程 · 无"), style=MUTED_STYLE))
         else:
             lines.append(Text(f"{'PID':>7} {'GiB':>5} " + tr("Process", "进程"), style=MUTED_STYLE))
-            for process in self.processes[:3]:
+            for process in self.processes:
                 memory = None if process.memory_used is None else process.memory_used / 1024
                 lines.append(Text(f"{process.pid:7d} {_field(memory, 5, 1)} {process.name}",
                                   style=MUTED_STYLE))
-            if len(self.processes) > 3:
-                lines.append(Text("…", style=MUTED_STYLE))
-        for line in lines:
-            line.no_wrap = True
-            line.overflow = "ellipsis"
-        return lines
+                if process.command and process.command != process.name:
+                    lines.append(Text(tr("  Command: ", "  命令：") + process.command, style=MUTED_STYLE))
+                lines.append(Text(tr("  Cwd: ", "  目录：") + (process.cwd or tr("unavailable", "不可见")),
+                                  style=MUTED_STYLE))
+        if width is None:
+            return lines
+        return [part for line in lines for part in line.wrap(console, max(1, width),
+                                                             overflow="fold", no_wrap=False)]
 
     def _tile(self, gpu, selected, width, height=3):
         title = Text(f"{'›' if selected else ' '}GPU{gpu.index:2d} ")
@@ -323,14 +362,15 @@ class Monitor:
     def render(self, width, height):
         width = max(1, width)
         self.columns, tile_width = self._layout(width)
-        detail_lines = self._detail_lines()
+        detail_lines = self._detail_lines(width)
         # Keep a card, footer, and overflow indicators visible before adding details.
         detail_budget = max(0, height - 5 - (len(self.gpus) > self.columns))
         if detail_lines and height >= 5:
             detail_budget = max(1, detail_budget)
-        if len(detail_lines) > detail_budget:
-            detail_lines = (detail_lines[:detail_budget - 1] +
-                            [Text("…", style=MUTED_STYLE)]) if detail_budget else []
+        self.detail_total = len(detail_lines)
+        self.detail_page_size = max(1, detail_budget)
+        self.detail_offset = max(0, min(self.detail_offset, self.detail_total - self.detail_page_size))
+        detail_lines = detail_lines[self.detail_offset:self.detail_offset + detail_budget]
         detail_height = len(detail_lines)
         rows = max(1, (height - 1 - detail_height) // 4)
         if len(self.gpus) > rows * self.columns:
@@ -344,6 +384,10 @@ class Monitor:
         heading = Text("PiMux · GPU", style=TITLE_STYLE, no_wrap=True, overflow="ellipsis")
         if len(visible) < len(self.gpus):
             heading.append(f"  {start + 1}–{start + len(visible)}/{len(self.gpus)}", style=MUTED_STYLE)
+        if self.details and self.detail_total > detail_budget:
+            heading.append(" · " + tr("details", "详情") +
+                           f" {self.detail_offset + 1}–{self.detail_offset + len(detail_lines)}/{self.detail_total}",
+                           style=MUTED_STYLE)
         content = []
         if self.error:
             content.append(Text(self.error, style="red", no_wrap=True, overflow="ellipsis"))
@@ -365,7 +409,8 @@ class Monitor:
         hints = [("d", tr("less", "收起") if self.details else tr("details", "详情")),
                  ("q", tr("back", "返回"))]
         footer = key_hints(hints)
-        navigation = ([("PgUp/Dn", "")] if len(visible) < len(self.gpus) else []) + [("↑↓←→", "")]
+        navigation = ([("PgUp/Dn", tr("scroll", "滚动") if self.details else "")]
+                      if self.details or len(visible) < len(self.gpus) else []) + [("↑↓←→", "")]
         for hint in navigation:
             candidate = key_hints([hint, *hints])
             if candidate.cell_len <= hint_width:
@@ -379,7 +424,8 @@ class Monitor:
 def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="pimux gpu", description=tr("Read-only GPU monitor (refreshes every second)", "只读 GPU 监控（每秒刷新）"),
-        epilog=tr("Arrows select, d toggles details, r refreshes, q/Esc returns.", "方向键选卡，d 展开详情，r 刷新，q/Esc 返回。"),
+        epilog=tr("Arrows select, d toggles details, wheel/PgUp/PgDn scroll details, r refreshes, q/Esc returns.",
+                  "方向键选卡，d 展开详情，滚轮/PgUp/PgDn 滚动详情，r 刷新，q/Esc 返回。"),
     )
     parser.add_argument("--once", action="store_true", help=tr("Print one snapshot", "输出一次后退出"))
     parser.add_argument("--compact", action="store_true", help=tr("Use a single column", "使用单列 GPU 小块"))
