@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1
+
+- Copy literal directory paths correctly on tmux versions that escape display output, including directory names containing `$`.
+
 ## 0.3.0
 
 - Copy the current directory from the action menu or Ctrl-a y, targeting the requesting terminal's clipboard and tmux buffer.
