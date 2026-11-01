@@ -1,6 +1,6 @@
 # PiMux
 
-**Personal Interactive MUltipleXer** — your personal terminal workspace, ready to use. Built on tmux.
+**Personal Interactive MUltipleXer** — a ready-to-use terminal workspace for research and project development. Built on tmux.
 
 [简体中文](README.zh-CN.md) · [Download](https://github.com/2-mo/pimux/releases/latest) · [Changelog](CHANGELOG.md)
 
@@ -32,7 +32,7 @@ Alternatively, download and extract `pimux-linux.tar.gz` from [Releases](https:/
 
 - **Ready-made styling.** The tmux theme and Starship prompt are enabled together. The prompt shows the current directory, Git branch, Python environment, time and slow command duration.
 - **Independent window selection.** Two terminals can view different windows in the same session while sharing the running programs.
-- **Search, then jump.** Open the manager, press `/`, and type a session name, window name or directory. Matches update as you type. Arrows select, Enter opens, Backspace edits, and Esc clears the search. Search is literal and case-insensitive.
+- **Search, then jump.** Window entries show the active pane’s foreground program. Open the manager, press `/`, and type a session name, window name, program or directory. Matches update as you type. Arrows select, Enter opens, Backspace edits, and Esc clears the search. Search is literal and case-insensitive.
 - **Mouse support.** Click manager entries to open them, click the left arrow to expand or collapse, and use the wheel to scroll the manager or GPU details. Mouse support is enabled automatically.
 - **GPU activity at a glance.** Bold circles show approximate utilization, with four GPUs per group. Press `Ctrl-a g` for live utilization, memory and process details in a popup.
 - **English and Chinese.** Open `Ctrl-a h`, choose `Language / 语言`, then select a language. The preference is saved automatically.
@@ -75,7 +75,7 @@ Press `Ctrl-a`, release it, then press the action key. A bright orange badge sho
 | `/` | Keyboard help |
 | `r` / `d` | Reload / detach and leave tasks running |
 
-In the manager, `n` creates a session, `x` closes the selected item after confirmation, and `q` returns. The GPU popup refreshes every five seconds; the mouse wheel, arrows and Page Up/Down scroll, and `r` refreshes immediately. Both popups belong to the current client and do not replace another terminal's application pane.
+In the manager, `n` creates a session with the current directory name prefilled: Enter accepts, or edit the name or clear it to cancel. `x` closes the selected item after confirmation, and `q` returns. The GPU popup refreshes every five seconds; the mouse wheel, arrows and Page Up/Down scroll, and `r` refreshes immediately. Both popups belong to the current client and do not replace another terminal's application pane.
 
 ## GPU circles
 

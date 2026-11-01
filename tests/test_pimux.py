@@ -480,8 +480,12 @@ def test_manager_can_close_its_own_session(server, has_other_session):
         os.close(peer_slave)
 
 
-def test_empty_manager_creates_only_on_request_and_help_is_read_only(server):
+@pytest.mark.parametrize('use_suggested_name', [False, True])
+def test_empty_manager_creates_only_on_request_and_help_is_read_only(tmp_path, server, use_suggested_name):
     env, tmux = server
+    project = tmp_path / 'experiment.v2'
+    project.mkdir()
+    expected = 'experiment-v2' if use_suggested_name else 'ls'
     tmux("kill-server")
     for args in (["-h"], ["ls"]):
         result = subprocess.run([str(SOURCE / "pimux"), *args], env=env, text=True, capture_output=True)
@@ -492,7 +496,7 @@ def test_empty_manager_creates_only_on_request_and_help_is_read_only(server):
     master, slave = os.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 120, 0, 0))
     client = subprocess.Popen([str(SOURCE / "pimux")], env=env, stdin=slave,
-                              stdout=slave, stderr=slave, start_new_session=True)
+                              stdout=slave, stderr=slave, start_new_session=True, cwd=project)
     output = bytearray()
 
     def wait_for(text):
@@ -509,28 +513,34 @@ def test_empty_manager_creates_only_on_request_and_help_is_read_only(server):
         assert subprocess.run(["tmux", "list-sessions"], env=env, capture_output=True).returncode != 0
         os.write(master, b"n")
         wait_for("会话名称")
-        os.write(master, b"bad.name\r")
+        output.clear()
+        os.write(master, b"\x15\r")
+        wait_for("暂无会话")
+        assert subprocess.run(["tmux", "list-sessions"], env=env, capture_output=True).returncode != 0
+        os.write(master, b"n")
+        wait_for("会话名称")
+        os.write(master, b"\x15bad.name\r")
         wait_for("不能")
         assert subprocess.run(["tmux", "list-sessions"], env=env, capture_output=True).returncode != 0
         output.clear()
         os.write(master, b"n")
         wait_for("会话名称")
-        os.write(master, b"ls\r")
-        wait_for("ls")
+        os.write(master, b"\r" if use_suggested_name else b"\x15ls\r")
         deadline = time.monotonic() + 8
         while time.monotonic() < deadline:
             result = subprocess.run(["tmux", "list-clients", "-F", "#{@pimux_view}"],
                                     env=env, capture_output=True, text=True)
-            if result.stdout.strip() == "ls":
+            if result.stdout.strip() == expected:
                 break
             time.sleep(0.05)
         else:
             pytest.fail(output.decode(errors="replace")[-1500:])
         os.write(master, b"\x01d")
         assert client.wait(timeout=8) == 0
-        assert tmux("list-sessions", "-F", "#{session_name}") == "ls"
+        assert tmux("list-sessions", "-F", "#{session_name}") == expected
+        assert tmux('display-message', '-p', '-t', f'={expected}:', '#{pane_current_path}') == str(project)
         listing = subprocess.check_output([str(SOURCE / "pimux"), "ls"], env=env, text=True)
-        assert "ls  " in listing and "~view-" not in listing
+        assert f"{expected}  " in listing and "~view-" not in listing
     finally:
         if client.poll() is None:
             client.terminate()
@@ -690,7 +700,7 @@ def test_search_gpu_popup_and_reload_preserve_running_panes(tmp_path, server):
     tmux('source-file', str(SOURCE / 'pimux.conf'))
     tmux('set-option', '-g', '@pimux_launcher', str(SOURCE / 'pimux'))
     # Literal brackets must not become a pattern; hidden windows are searchable.
-    wanted = tmux('new-window', '-d', '-t', 'seed', '-n', 'Train[Fast]', '-P', '-F', '#{window_id}')
+    wanted = tmux('new-window', '-d', '-t', 'seed', '-n', 'Train[Fast]', '-P', '-F', '#{window_id}', 'sleep 60')
     before = tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid}')
     master, slave = os.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 32, 140, 0, 0))
@@ -719,8 +729,14 @@ def test_search_gpu_popup_and_reload_preserve_running_panes(tmp_path, server):
         output.clear()
         os.write(master, b'/train[')
         wait_for(lambda: b'Train[Fast]' in output)
+        os.write(master, b'\x1b')
+        wait_for(lambda: ' / 搜索'.encode() in output)
+        output.clear()
+        os.write(master, b'/sleep')
+        wait_for(lambda: b'Train[Fast]' in output and b'[sleep]' in output)
         os.write(master, b'\r')
         wait_for(lambda: tmux('display-message', '-p', '-t', f'{view}:', '#{window_id}') == wanted)
+        wait_for(lambda: '__manager' not in tmux('show-messages', '-J'))
         output.clear()
         os.write(master, b'\x01g')
         wait_for(lambda: b'GPU-MOCK 1234 demo-process 4096MiB' in output)

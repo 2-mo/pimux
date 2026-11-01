@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.1
+
+- Prefill new session names from the current directory; accept with Enter, edit, or clear to cancel.
+- Show and search the active pane's foreground program in window listings.
+- Highlight the entire selected row and show the selection position and list size.
+- Use shorter keyboard and mouse hints in narrow manager windows.
+
 ## 0.2.0
 
 - Show a high-contrast prefix badge and common actions while Ctrl-a waits for the next key; Esc cancels.

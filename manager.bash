@@ -3,7 +3,7 @@
 manager() (
     local client=${1:-} expand_current=${2:-} selected=0 offset=0 rows cols visible
     local sid wid label key answer name current='' error='' i count root resized=false
-    local query='' searching=false candidate
+    local query='' searching=false candidate suggestion
     local -a roots=() windows=() labels=()
     local -A expanded=()
     if [[ -n $client ]]; then
@@ -27,7 +27,7 @@ manager() (
                     candidate="$name / $label"
                     [[ ${candidate,,} == *"${query,,}"* ]] || continue
                     roots+=("$sid"); windows+=("$wid"); labels+=("$candidate")
-                done < <(tmux list-windows -t "$sid" -F $'#{window_id}\t#{window_index}:#{window_name}  #{pane_current_path}')
+                done < <(tmux list-windows -t "$sid" -F $'#{window_id}\t#{window_index}:#{window_name}  [#{pane_current_command}]  #{pane_current_path}')
                 continue
             fi
             roots+=("$sid"); windows+=('')
@@ -35,7 +35,7 @@ manager() (
                 labels+=("v $label")
                 while IFS=$'\t' read -r wid label; do
                     roots+=("$sid"); windows+=("$wid"); labels+=("    $label")
-                done < <(tmux list-windows -t "$sid" -F $'#{window_id}\t#{window_index}:#{window_name}  #{pane_current_path}')
+                done < <(tmux list-windows -t "$sid" -F $'#{window_id}\t#{window_index}:#{window_name}  [#{pane_current_command}]  #{pane_current_path}')
             else
                 labels+=("> $label")
             fi
@@ -53,7 +53,7 @@ manager() (
         (( selected >= offset )) || offset=$selected
         (( selected < offset + visible )) || offset=$((selected - visible + 1))
         printf '\033[H\033[2J\033[38;2;183;161;232m pimux · %s\033[0m\n' "$(tr_ui '会话管理')"
-        printf_ui ' 搜索：%s\n\n' "$query"
+        printf_ui ' 搜索：%s  [%s/%s]\n\n' "$query" "$((count > 0 ? selected + 1 : 0))" "$count"
         if (( count == 0 )); then
             if [[ -n $query ]]; then printf_ui ' 没有匹配的窗口，Esc 清除搜索。\n'
             else printf_ui ' 暂无会话。按 n 新建，或 q 返回后运行 pimux -n NAME。\n'
@@ -63,16 +63,20 @@ manager() (
                 (( i != selected )) || printf '\033[48;2;39;43;52m\033[38;2;99;197;248m'
                 # Do not interpret terminal control sequences from names or paths.
                 label=$(printf '%s' "${labels[i]}" | sed 's/[[:cntrl:]]/?/g')
-                printf ' %s\033[0m\n' "$label"
+                printf ' %s\033[K\033[0m\n' "$label"
             done
         fi
         if [[ $searching == true ]]; then
-            label=$(tr_ui ' 输入筛选  ↑↓ 选择  Enter 进入  Backspace 删除  Esc 清除')
+            if (( cols < 80 )); then label=$(tr_ui ' 输入筛选  Enter 进入  Esc 清除')
+            else label=$(tr_ui ' 输入筛选  ↑↓ 选择  Enter 进入  Backspace 删除  Esc 清除'); fi
         else
-            label=$(tr_ui ' / 搜索  ↑↓ 选择  ←→ 展开  Enter 进入  n 新建  x 关闭  q 返回')
+            if (( cols < 80 )); then label=$(tr_ui ' / 搜索  Enter 进入  n 新建  q 返回')
+            else label=$(tr_ui ' / 搜索  ↑↓ 选择  ←→ 展开  Enter 进入  n 新建  x 关闭  q 返回'); fi
         fi
         printf '\033[%s;1H\033[38;2;255;175;95m%s\033[0m' "$((rows > 3 ? rows - 2 : 1))" "$label"
-        printf '\n\033[38;2;156;163;175m%s\033[0m' "$(tr_ui ' 点击进入  点箭头展开/收起  滚轮翻动')"
+        if (( cols < 80 )); then label=$(tr_ui ' 点击进入  滚轮翻动')
+        else label=$(tr_ui ' 点击进入  点箭头展开/收起  滚轮翻动'); fi
+        printf '\n\033[38;2;156;163;175m%s\033[0m' "$label"
         [[ -z $error ]] || printf '\n %s' "$error"
         error=''
         key=''
@@ -126,7 +130,9 @@ manager() (
                 ;;
             n)
                 printf '\033[?1000l\033[?1006l\033[%s;1H\033[2K\033[?25h' "$rows"
-                name=''; IFS= read -er -p "$(tr_ui ' 会话名称（空白取消）：')" name || true
+                suggestion=$(printf '%s' "${PWD##*/}" | sed 's/[.:$#{}[:cntrl:]]/-/g; s/^-*//')
+                name=''; IFS= read -er -i "${suggestion:-work}" \
+                    -p "$(tr_ui ' 会话名称（Enter 确认，清空取消）：')" name || name=''
                 printf '\033[?25l\033[?1000h\033[?1006h'
                 [[ -n $name ]] || continue
                 if root=$(ensure_session "$name" 2>&1); then
