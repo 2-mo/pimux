@@ -37,7 +37,8 @@ def window_blocks(binary, socket, target):
             except OSError:
                 pass
         lines = [text(f"{pane} · PID {pid} · {program}", "bold #63c5f8"), text(state, style),
-                 text(tr("Cwd: ", "目录：") + cwd, MUTED_STYLE), text(tr("Recent output", "最近输出"), "bold")]
+                 text(tr("Cwd: ", "目录：") + (cwd or tr("unavailable", "不可见")), MUTED_STYLE),
+                 text(tr("Recent output", "最近输出"), "bold")]
         try:
             output = tmux("capture-pane", "-p", "-t", pane, "-S", "-60")
             lines.extend(text(line) for line in output.rstrip("\n").splitlines()[-60:])

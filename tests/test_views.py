@@ -66,6 +66,9 @@ def test_document_filters_and_scrolls_full_paths_and_handles_literal_controls():
     assert view.offset > 0
     view.on_key(SimpleNamespace(name="MOUSE_SCROLL_UP"))
     assert view.offset < view.total - view.page_size
+    assert not view.on_key("KEY_ESCAPE")
+    assert view.query == "" and view.offset == 0
+    assert view.on_key("KEY_ESCAPE")
     assert "\x1b" not in text("\x1b[2Jhello").plain
 
 
