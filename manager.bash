@@ -1,8 +1,9 @@
-# piux-managed: interactive manager, sourced by the standalone Bash launcher.
+# pimux-managed: interactive manager, sourced by the standalone Bash launcher.
 # Run outside application panes; inside tmux this lives in a client-local popup.
 manager() (
     local client=${1:-} expand_current=${2:-} selected=0 offset=0 rows cols visible
-    local sid wid label key suffix answer name current='' error='' i count root resized=false
+    local sid wid label key answer name current='' error='' i count root resized=false
+    local query='' searching=false candidate
     local -a roots=() windows=() labels=()
     local -A expanded=()
     if [[ -n $client ]]; then
@@ -20,6 +21,15 @@ manager() (
         while read -r sid; do
             [[ -n $sid ]] || continue
             label=$(tmux display-message -p -t "$sid:" "#{session_name}  (#{session_windows} $(tr_ui '窗口'))") || continue
+            if [[ -n $query ]]; then
+                name=$(tmux display-message -p -t "$sid:" '#{session_name}')
+                while IFS=$'\t' read -r wid label; do
+                    candidate="$name / $label"
+                    [[ ${candidate,,} == *"${query,,}"* ]] || continue
+                    roots+=("$sid"); windows+=("$wid"); labels+=("$candidate")
+                done < <(tmux list-windows -t "$sid" -F $'#{window_id}\t#{window_index}:#{window_name}  #{pane_current_path}')
+                continue
+            fi
             roots+=("$sid"); windows+=('')
             if [[ ${expanded[$sid]:-} == 1 ]]; then
                 labels+=("v $label")
@@ -39,12 +49,15 @@ manager() (
         fi
         (( selected < count )) || selected=$((count > 0 ? count - 1 : 0))
         read -r rows cols < <(stty size)
-        visible=$((rows > 7 ? rows - 7 : 1))
+        visible=$((rows > 8 ? rows - 8 : 1))
         (( selected >= offset )) || offset=$selected
         (( selected < offset + visible )) || offset=$((selected - visible + 1))
-        printf '\033[H\033[2J\033[38;2;183;161;232m piux · %s\033[0m\n\n' "$(tr_ui '会话管理')"
+        printf '\033[H\033[2J\033[38;2;183;161;232m pimux · %s\033[0m\n' "$(tr_ui '会话管理')"
+        printf_ui ' 搜索：%s\n\n' "$query"
         if (( count == 0 )); then
-            printf_ui ' 暂无会话。按 n 新建，或 q 返回后运行 piux -n NAME。\n'
+            if [[ -n $query ]]; then printf_ui ' 没有匹配的窗口，Esc 清除搜索。\n'
+            else printf_ui ' 暂无会话。按 n 新建，或 q 返回后运行 pimux -n NAME。\n'
+            fi
         else
             for ((i=offset; i<count && i<offset+visible; i++)); do
                 (( i != selected )) || printf '\033[48;2;39;43;52m\033[38;2;99;197;248m'
@@ -53,17 +66,30 @@ manager() (
                 printf ' %s\033[0m\n' "$label"
             done
         fi
-        printf '\033[%s;1H\033[38;2;255;175;95m%s\033[0m' "$((rows > 3 ? rows - 2 : 1))" "$(tr_ui ' ↑↓ 选择  ←→ 展开/收起  Enter 进入  n 新建  x 关闭  r 刷新  q 返回')"
+        if [[ $searching == true ]]; then
+            label=$(tr_ui ' 输入筛选  ↑↓ 选择  Enter 进入  Backspace 删除  Esc 清除')
+        else
+            label=$(tr_ui ' / 搜索  ↑↓ 选择  ←→ 展开  Enter 进入  n 新建  x 关闭  q 返回')
+        fi
+        printf '\033[%s;1H\033[38;2;255;175;95m%s\033[0m' "$((rows > 3 ? rows - 2 : 1))" "$label"
         [[ -z $error ]] || printf '\n %s' "$error"
         error=''
         key=''
         resized=false
-        IFS= read -rsn1 key || { [[ $resized == true ]] && continue; return; }
-        if [[ $key == $'\e' ]]; then
-            suffix=''; IFS= read -rsn2 -t 0.1 suffix || true
-            key+=$suffix
+        read_ui_key || { [[ $resized == true ]] && continue; return; }
+        key=$PIMUX_KEY
+        if [[ $searching == true ]]; then
+            case $key in
+                $'\177'|$'\b') query=${query%?}; selected=0; offset=0; continue ;;
+                $'\e') query=''; searching=false; selected=0; offset=0; continue ;;
+                ''|$'\e[A'|$'\eOA'|$'\e[B'|$'\eOB') ;;
+                *)
+                    [[ $key =~ [[:cntrl:]] ]] || query+=$key
+                    selected=0; offset=0; continue ;;
+            esac
         fi
         case $key in
+            /) searching=true; selected=0; offset=0 ;;
             q|$'\e') return ;;
             $'\e[A'|$'\eOA'|k) (( selected == 0 )) || selected=$((selected - 1)) ;;
             $'\e[B'|$'\eOB'|j) (( selected + 1 >= count )) || selected=$((selected + 1)) ;;

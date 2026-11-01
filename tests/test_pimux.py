@@ -24,77 +24,44 @@ def install(home, function="install_files"):
     )
 
 
-def test_install_preserves_config_and_is_repeatable(tmp_path):
-    # Quotes and dollar signs in paths must stay literal in tmux configuration.
+def test_install_preserves_dotfiles_and_ships_complete_theme(tmp_path):
     home = tmp_path / 'personal "terminal" $dir'
     home.mkdir()
-    original = "# personal settings\nset -g history-limit 100000\n"
-    conf = home / ".tmux.conf"
-    conf.write_text(original)
-    conf.chmod(0o600)
-    first = install(home)
-    assert first.returncode == 0, first.stderr
-    installed = conf.read_text()
-    assert installed.startswith(original)
-    assert installed.count("source-file ") == 1
-    assert conf.stat().st_mode & 0o777 == 0o600
-    backups = list(home.glob(".tmux.conf.piux-backup.*"))
+    dotfiles = {'.tmux.conf': '# personal tmux\n', '.bashrc': '# personal shell\n'}
+    for name, value in dotfiles.items():
+        (home / name).write_text(value)
+    for _ in range(2):
+        result = install(home)
+        assert result.returncode == 0, result.stderr
+        for name, value in dotfiles.items():
+            assert (home / name).read_text() == value
+    assert os.access(home / '.local/bin/pimux', os.X_OK)
+    config = home / '.config/pimux'
+    for file in ('tmux.conf', 'bashrc', 'shell.bash', 'starship.toml', 'gpu.bash'):
+        assert (config / file).is_file()
+    theme = config / 'tmux.conf'
+    theme.write_text('# pimux-managed: previous theme\n')
+    result = install(home)
+    assert result.returncode == 0, result.stderr
+    backups = list(config.glob('tmux.conf.pimux-backup.*'))
     assert len(backups) == 1
-    assert backups[0].read_text() == original
-    assert os.access(home / ".local/bin/piux", os.X_OK)
-    again = install(home)
-    assert again.returncode == 0, again.stderr
-    assert conf.read_text() == installed
-    assert list(home.glob(".tmux.conf.piux-backup.*")) == backups
+    assert backups[0].read_text() == '# pimux-managed: previous theme\n'
 
 
-def test_install_keeps_config_symlink_and_refuses_unrelated_launcher(tmp_path):
-    original = tmp_path / "personal.conf"
-    original.write_text("# existing dotfiles\n")
-    main = tmp_path / ".tmux.conf"
-    main.symlink_to(original)
-    bindir = tmp_path / ".local/bin"
+def test_install_refuses_unrelated_launcher_and_keeps_symlink(tmp_path):
+    config = tmp_path / 'personal.conf'
+    config.write_text('# existing dotfiles\n')
+    main = tmp_path / '.tmux.conf'
+    main.symlink_to(config)
+    bindir = tmp_path / '.local/bin'
     bindir.mkdir(parents=True)
-    launcher = bindir / "piux"
-    launcher.write_text("# unrelated user tool\n")
+    launcher = bindir / 'pimux'
+    launcher.write_text('# unrelated user tool\n')
     result = install(tmp_path)
     assert result.returncode != 0
-    assert launcher.read_text() == "# unrelated user tool\n"
+    assert launcher.read_text() == '# unrelated user tool\n'
     assert main.is_symlink()
-    assert original.read_text() == "# existing dotfiles\n"
-    # A previous managed install can be updated without replacing the config link.
-    launcher.write_text("# piux-managed: earlier version\n")
-    result = install(tmp_path)
-    assert result.returncode == 0, result.stderr
-    assert main.is_symlink()
-    assert original.read_text().startswith("# existing dotfiles\n")
-    assert "source-file " in original.read_text()
-
-
-def test_shell_install_preserves_dotfiles_and_is_repeatable(tmp_path):
-    home = tmp_path / 'shell "quoted" $dir'
-    home.mkdir()
-    dotfile = home / 'personal.bashrc'
-    original = '# existing Bash config\nexport MY_SETTING=keep\n'
-    dotfile.write_text(original)
-    dotfile.chmod(0o600)
-    (home / '.bashrc').symlink_to(dotfile)
-    (home / '.config').mkdir()
-    theme = home / '.config/starship.toml'
-    theme.write_text('# existing Starship theme\n')
-    first = install(home, "install_shell_files")
-    assert first.returncode == 0, first.stderr
-    installed = dotfile.read_text()
-    assert installed.startswith(original)
-    assert (home / '.bashrc').is_symlink()
-    assert dotfile.stat().st_mode & 0o777 == 0o600
-    assert theme.read_text() == '# existing Starship theme\n'
-    backups = list(home.glob('personal.bashrc.piux-backup.*'))
-    assert len(backups) == 1 and backups[0].read_text() == original
-    again = install(home, "install_shell_files")
-    assert again.returncode == 0, again.stderr
-    assert dotfile.read_text() == installed
-    assert list(home.glob('personal.bashrc.piux-backup.*')) == backups
+    assert config.read_text() == '# existing dotfiles\n'
 
 
 def test_shell_initializes_starship_when_only_environment_was_inherited():
@@ -107,55 +74,12 @@ declare -F starship_precmd >/dev/null
 before=$PROMPT_COMMAND
 source "$1"
 [[ $PROMPT_COMMAND == "$before" ]]
-[[ $STARSHIP_CONFIG == "$HOME/.config/piux/starship.toml" ]]
+[[ $STARSHIP_CONFIG == "$HOME/.config/pimux/starship.toml" ]]
 '''
     result = subprocess.run(['bash', '--noprofile', '--norc', '-ic', script,
                              'test', str(SOURCE / 'bashrc')], env=env,
                             capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
-
-
-def test_rename_migrates_references_and_keeps_live_runtime_and_prompt_files(tmp_path):
-    home = tmp_path / 'old home'
-    legacy = home / '.config/pimux'
-    legacy.mkdir(parents=True)
-    bindir = home / '.local/bin'
-    bindir.mkdir(parents=True)
-    launcher = bindir / 'pimux'
-    launcher.write_text('# pimux-managed: previous launcher\n')
-    launcher.chmod(0o755)
-    runtime = '/opt/tmux/bin/tmux\npimux-3.8\n/usr/bin/tmux\n'
-    (legacy / 'runtime.conf').write_text(runtime)
-    (legacy / 'tmux.conf').write_text('# pimux-managed: previous theme\n')
-    (legacy / 'starship.toml').write_text('# still used by existing shells\n')
-    (legacy / 'bashrc').write_text('# pimux-managed: previous Bash setup\n')
-    conf = home / '.tmux.conf'
-    conf.write_text('# personal tmux config\n# pimux: personal terminal theme and bindings\n'
-                    f'source-file "{legacy}/tmux.conf"\n')
-    bash_include = subprocess.check_output(
-        ['bash', '-c', 'printf "source %q" "$1"', 'test', str(legacy / 'bashrc')], text=True
-    )
-    rc = home / '.bashrc'
-    rc.write_text('# personal Bash config\n# pimux: shared Bash prompt\n' + bash_include + '\n')
-    for function in ('install_files', 'install_shell_files'):
-        result = install(home, function)
-        assert result.returncode == 0, result.stderr
-    assert (home / '.config/piux/runtime.conf').read_text() == runtime
-    assert not launcher.exists()
-    archives = list(bindir.glob('pimux.piux-backup.*'))
-    assert len(archives) == 1
-    assert archives[0].read_text() == '# pimux-managed: previous launcher\n'
-    assert '.config/pimux/tmux.conf' not in conf.read_text()
-    assert bash_include not in rc.read_text()
-    assert conf.read_text().startswith('# personal tmux config\n')
-    assert rc.read_text().startswith('# personal Bash config\n')
-    assert (legacy / 'starship.toml').read_text() == '# still used by existing shells\n'
-    installed = (conf.read_text(), rc.read_text())
-    for function in ('install_files', 'install_shell_files'):
-        result = install(home, function)
-        assert result.returncode == 0, result.stderr
-    assert (conf.read_text(), rc.read_text()) == installed
-    assert list(bindir.glob('pimux.piux-backup.*')) == archives
 
 
 @pytest.fixture
@@ -167,9 +91,10 @@ def server(tmp_path):
     env = {k: v for k, v in os.environ.items() if k not in {"TMUX", "TMUX_PANE"}}
     env["TMUX_TMPDIR"] = str(socket_dir)
     env["TERM"] = "xterm-256color"
-    env["PIUX_RUNTIME_FILE"] = str(tmp_path / "runtime.conf")
-    env["PIUX_LANGUAGE_FILE"] = str(tmp_path / "language")
-    Path(env["PIUX_LANGUAGE_FILE"]).write_text("zh\n")
+    env["PIMUX_RUNTIME_FILE"] = str(tmp_path / "runtime.conf")
+    Path(env["PIMUX_RUNTIME_FILE"]).write_text(f"{shutil.which('tmux')}\ndefault\n{shutil.which('tmux')}\n")
+    env["PIMUX_LANGUAGE_FILE"] = str(tmp_path / "language")
+    Path(env["PIMUX_LANGUAGE_FILE"]).write_text("zh\n")
 
     def tmux(*args):
         return subprocess.run(["tmux", *args], env=env, capture_output=True,
@@ -189,7 +114,7 @@ def test_installed_config_loads_and_reload_does_not_duplicate_features(tmp_path,
     home.mkdir()
     result = install(home)
     assert result.returncode == 0, result.stderr
-    conf = str(home / ".tmux.conf")
+    conf = str(home / ".config/pimux/tmux.conf")
     tmux("source-file", conf)
     first = tmux("show-options", "-s", "terminal-features")
     tmux("source-file", conf)
@@ -215,7 +140,7 @@ tmux() {
 }
 ensure_session "$2"
 '''
-    args = ["bash", "-c", call, "test", str(SOURCE / "piux"), "agents"]
+    args = ["bash", "-c", call, "test", str(SOURCE / "pimux"), "agents"]
     calls = [subprocess.Popen(args, cwd=cwd, env=env, text=True,
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
              for _ in range(4)]
@@ -235,7 +160,7 @@ ensure_session "$2"
 
 def test_noninteractive_entry_is_read_only(server):
     env, tmux = server
-    result = subprocess.run([str(SOURCE / "piux"), "-n", "new-project"], env=env,
+    result = subprocess.run([str(SOURCE / "pimux"), "-n", "new-project"], env=env,
                             text=True, capture_output=True)
     assert result.returncode != 0
     assert tmux("list-sessions", "-F", "#{session_name}") == "seed"
@@ -244,8 +169,8 @@ def test_noninteractive_entry_is_read_only(server):
 @pytest.mark.parametrize("close_original", [False, True])
 def test_independent_view_shares_programs_and_preserves_last_reference(tmp_path, server, close_original):
     env, tmux = server
-    tmux("source-file", str(SOURCE / "piux.conf"))
-    tmux("set-option", "-g", "@piux_launcher", str(SOURCE / "piux"))
+    tmux("source-file", str(SOURCE / "pimux.conf"))
+    tmux("set-option", "-g", "@pimux_launcher", str(SOURCE / "pimux"))
     original = tmux("display-message", "-p", "-t", "=seed:", "#{window_id}")
     original_pane = tmux("list-panes", "-t", "=seed:", "-F", "#{pane_id} #{pane_pid}")
     # The path fits beside the compact actions on a wide terminal.
@@ -258,7 +183,7 @@ def test_independent_view_shares_programs_and_preserves_last_reference(tmp_path,
     def start(*args):
         master, slave = os.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 160, 0, 0))
-        process = subprocess.Popen([str(SOURCE / "piux"), *args], env=env,
+        process = subprocess.Popen([str(SOURCE / "pimux"), *args], env=env,
                                    stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
         clients.append((process, master, slave))
         return process, master
@@ -279,7 +204,7 @@ def test_independent_view_shares_programs_and_preserves_last_reference(tmp_path,
         view_client, view_tty = start("-n", "seed")
         wait_for(lambda: len(tmux("list-clients", "-F", "#{session_id}").splitlines()) == 2)
         view = next(line.split()[0] for line in tmux(
-            "list-sessions", "-F", "#{session_id} #{@piux_view}"
+            "list-sessions", "-F", "#{session_id} #{@pimux_view}"
         ).splitlines() if line.endswith(" seed") and line.split()[0] != first_view)
         tmux("select-window", "-t", f"{view}:{second}")
         assert tmux("display-message", "-p", "-t", "=seed:", "#{window_id}") == original
@@ -292,15 +217,15 @@ def test_independent_view_shares_programs_and_preserves_last_reference(tmp_path,
         wait_for(lambda: tmux("list-clients", "-t", view, "-F", "#{client_width}") == "80")
         narrow = tmux("list-clients", "-t", view, "-F", "#{E:status-format[1]}")
         assert "…" in narrow and "/leaf" in narrow
-        listing = subprocess.check_output([str(SOURCE / "piux"), "ls"], env=env, text=True)
+        listing = subprocess.check_output([str(SOURCE / "pimux"), "ls"], env=env, text=True)
         assert len(listing.splitlines()) == 2 and "~view-" not in listing
         caller_env = {**env, "TMUX_PANE": original_pane.split()[0]}
-        caller = subprocess.run(["bash", "-c", 'source "$1"; current_client', "test", str(SOURCE / "piux")],
+        caller = subprocess.run(["bash", "-c", 'source "$1"; current_client', "test", str(SOURCE / "pimux")],
                                 env=caller_env, capture_output=True, text=True)
         assert caller.returncode == 0
         assert caller.stdout.strip() == tmux("list-clients", "-t", first_view, "-F", "#{client_name}")
         tmux("select-window", "-t", f"{view}:{original}")
-        ambiguous = subprocess.run(["bash", "-c", 'source "$1"; current_client', "test", str(SOURCE / "piux")],
+        ambiguous = subprocess.run(["bash", "-c", 'source "$1"; current_client', "test", str(SOURCE / "pimux")],
                                    env=caller_env, capture_output=True, text=True)
         assert ambiguous.returncode != 0
         tmux("select-window", "-t", f"{view}:{second}")
@@ -311,16 +236,16 @@ def test_independent_view_shares_programs_and_preserves_last_reference(tmp_path,
         client_name = tmux("list-clients", "-t", view, "-F", "#{client_name}")
         output.clear()
         os.write(view_tty, b"\x01h")
-        wait_for(lambda: "piux · 工作终端".encode() in output)
+        wait_for(lambda: "pimux · 工作终端".encode() in output)
         os.write(view_tty, b"s")
-        wait_for(lambda: "piux · 会话管理".encode() in output)
+        wait_for(lambda: "pimux · 会话管理".encode() in output)
         assert not tmux("display-message", "-p", "-t", f"{first_view}:", "#{pane_mode}")
         os.write(view_tty, b"\x1b[B\r")
-        wait_for(lambda: "target" in tmux("list-clients", "-F", "#{@piux_view}"))
+        wait_for(lambda: "target" in tmux("list-clients", "-F", "#{@pimux_view}"))
         assert tmux("display-message", "-p", "-t", f"{first_view}:", "#{window_id}") == original
         wait_for(lambda: "__manager" not in tmux("show-messages", "-J"))
         os.write(view_tty, b"\x01L")
-        wait_for(lambda: tmux("list-clients", "-F", "#{@piux_view}").splitlines() == ["seed", "seed"])
+        wait_for(lambda: tmux("list-clients", "-F", "#{@pimux_view}").splitlines() == ["seed", "seed"])
         view = next(line.split()[1] for line in tmux(
             "list-clients", "-F", "#{client_name} #{session_id}"
         ).splitlines() if line.split()[0] == client_name)
@@ -353,58 +278,58 @@ def test_independent_view_shares_programs_and_preserves_last_reference(tmp_path,
 
 def test_runtime_routes_new_and_system_servers_separately(server):
     env, tmux = server
-    runtime = Path(env["PIUX_RUNTIME_FILE"])
-    runtime.write_text(f"{shutil.which('tmux')}\npiux-3.8\n{shutil.which('tmux')}\n")
-    tmux("-L", "piux-3.8", "-f", "/dev/null", "new-session", "-d", "-s", "fresh")
+    runtime = Path(env["PIMUX_RUNTIME_FILE"])
+    runtime.write_text(f"{shutil.which('tmux')}\npimux-3.8\n{shutil.which('tmux')}\n")
+    tmux("-L", "pimux-3.8", "-f", "/dev/null", "new-session", "-d", "-s", "fresh")
     try:
         # A read-only command from an old pane must still address the selected server.
         env["TMUX"] = tmux("display-message", "-p", "#{socket_path},#{pid},0")
         env["TMUX_PANE"] = "%9999"
-        fresh = subprocess.run([str(SOURCE / "piux"), "ls"], env=env,
+        fresh = subprocess.run([str(SOURCE / "pimux"), "ls"], env=env,
                                text=True, capture_output=True, check=True)
-        old = subprocess.run([str(SOURCE / "piux"), "--system", "ls"], env=env,
+        old = subprocess.run([str(SOURCE / "pimux"), "--system", "ls"], env=env,
                              text=True, capture_output=True, check=True)
         assert "fresh" in fresh.stdout and "seed" not in fresh.stdout
         assert "seed" in old.stdout and "fresh" not in old.stdout
-        diagnostics = subprocess.run([str(SOURCE / "piux"), "doctor"], env=env,
+        diagnostics = subprocess.run([str(SOURCE / "pimux"), "doctor"], env=env,
                                      text=True, capture_output=True, check=True)
-        pid = tmux("-L", "piux-3.8", "display-message", "-p", "#{pid}")
+        pid = tmux("-L", "pimux-3.8", "display-message", "-p", "#{pid}")
         assert f"PID {pid}" in diagnostics.stdout
-        # Theme updates must reach piux on both servers, leaving other sessions alone.
+        # Theme updates must reach pimux on both servers, leaving other sessions alone.
         tmux("new-session", "-d", "-s", "personal")
         tmux("set-option", "-t", "personal", "status-right", "personal status")
-        for options, session in (([], "seed"), (["-L", "piux-3.8"], "fresh")):
-            tmux(*options, "set-option", "-t", session, "@piux_launcher", str(SOURCE / "piux"))
+        for options, session in (([], "seed"), (["-L", "pimux-3.8"], "fresh")):
+            tmux(*options, "set-option", "-t", session, "@pimux_launcher", str(SOURCE / "pimux"))
             tmux(*options, "set-option", "-t", session, "status-right", "")
         before = tmux("list-panes", "-a", "-F", "#{pane_id} #{pane_pid}")
         subprocess.run(
             ["bash", "-c", 'source "$1"; configure_runtime; refresh_session_themes',
-             "test", str(SOURCE / "piux")], env=env, check=True, capture_output=True,
+             "test", str(SOURCE / "pimux")], env=env, check=True, capture_output=True,
         )
-        for options, session in (([], "seed"), (["-L", "piux-3.8"], "fresh")):
+        for options, session in (([], "seed"), (["-L", "pimux-3.8"], "fresh")):
             assert "__gpu-status" in tmux(*options, "show-options", "-qv", "-t", session, "status-right")
         assert tmux("show-options", "-qv", "-t", "personal", "status-right") == "personal status"
         assert tmux("list-panes", "-a", "-F", "#{pane_id} #{pane_pid}") == before
     finally:
-        tmux("-L", "piux-3.8", "kill-server")
+        tmux("-L", "pimux-3.8", "kill-server")
 
 
 def test_cross_server_entry_refuses_before_creating_session(server):
     env, tmux = server
-    Path(env["PIUX_RUNTIME_FILE"]).write_text(
-        f"{shutil.which('tmux')}\npiux-3.8\n{shutil.which('tmux')}\n"
+    Path(env["PIMUX_RUNTIME_FILE"]).write_text(
+        f"{shutil.which('tmux')}\npimux-3.8\n{shutil.which('tmux')}\n"
     )
     env["TMUX"] = tmux("display-message", "-p", "#{socket_path},#{pid},0")
     env["TMUX_PANE"] = "%0"
     master, slave = os.openpty()
     try:
-        result = subprocess.run([str(SOURCE / "piux"), "-n", "agents"], env=env,
+        result = subprocess.run([str(SOURCE / "pimux"), "-n", "agents"], env=env,
                                 stdin=slave, stdout=slave, stderr=subprocess.PIPE,
                                 text=True, timeout=5)
         assert result.returncode != 0
         assert "Ctrl-a d" in result.stderr
         assert tmux("list-sessions", "-F", "#{session_name}") == "seed"
-        untouched = subprocess.run(["tmux", "-L", "piux-3.8", "list-sessions"],
+        untouched = subprocess.run(["tmux", "-L", "pimux-3.8", "list-sessions"],
                                    env=env, capture_output=True)
         assert untouched.returncode != 0
     finally:
@@ -415,19 +340,19 @@ def test_cross_server_entry_refuses_before_creating_session(server):
 @pytest.mark.parametrize("has_other_session", [True, False])
 def test_manager_can_close_its_own_session(server, has_other_session):
     env, tmux = server
-    tmux("source-file", str(SOURCE / "piux.conf"))
-    tmux("set-option", "-g", "@piux_launcher", str(SOURCE / "piux"))
+    tmux("source-file", str(SOURCE / "pimux.conf"))
+    tmux("set-option", "-g", "@pimux_launcher", str(SOURCE / "pimux"))
     kept_pane = tmux("list-panes", "-t", "=seed:", "-F", "#{pane_id} #{pane_pid}")
     tmux("new-session", "-d", "-s", "self")
     if not has_other_session:
         tmux("kill-session", "-t", "=seed")
     master, slave = os.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 120, 0, 0))
-    client = subprocess.Popen([str(SOURCE / "piux"), "-n", "self"], env=env, stdin=slave,
+    client = subprocess.Popen([str(SOURCE / "pimux"), "-n", "self"], env=env, stdin=slave,
                               stdout=slave, stderr=slave, start_new_session=True)
     peer_master, peer_slave = os.openpty()
     fcntl.ioctl(peer_slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 120, 0, 0))
-    peer = subprocess.Popen([str(SOURCE / "piux"), "-n", "self"], env=env, stdin=peer_slave,
+    peer = subprocess.Popen([str(SOURCE / "pimux"), "-n", "self"], env=env, stdin=peer_slave,
                             stdout=peer_slave, stderr=peer_slave, start_new_session=True)
     output = bytearray()
 
@@ -445,7 +370,7 @@ def test_manager_can_close_its_own_session(server, has_other_session):
     try:
         wait_for(lambda: len(tmux("list-clients", "-F", "#{session_name}").splitlines()) == 2)
         os.write(master, b"\x01s")
-        wait_for(lambda: "piux · 会话管理".encode() in output)
+        wait_for(lambda: "pimux · 会话管理".encode() in output)
         os.write(master, b"x")
         prompt = "关闭会话 self".encode()
         wait_for(lambda: prompt in output)
@@ -479,14 +404,14 @@ def test_empty_manager_creates_only_on_request_and_help_is_read_only(server):
     env, tmux = server
     tmux("kill-server")
     for args in (["-h"], ["ls"]):
-        result = subprocess.run([str(SOURCE / "piux"), *args], env=env, text=True, capture_output=True)
+        result = subprocess.run([str(SOURCE / "pimux"), *args], env=env, text=True, capture_output=True)
         assert result.returncode == 0
-    unknown = subprocess.run([str(SOURCE / "piux"), "arbitrary-name"], env=env, capture_output=True)
+    unknown = subprocess.run([str(SOURCE / "pimux"), "arbitrary-name"], env=env, capture_output=True)
     assert unknown.returncode == 2
     assert subprocess.run(["tmux", "list-sessions"], env=env, capture_output=True).returncode != 0
     master, slave = os.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 120, 0, 0))
-    client = subprocess.Popen([str(SOURCE / "piux")], env=env, stdin=slave,
+    client = subprocess.Popen([str(SOURCE / "pimux")], env=env, stdin=slave,
                               stdout=slave, stderr=slave, start_new_session=True)
     output = bytearray()
 
@@ -514,7 +439,7 @@ def test_empty_manager_creates_only_on_request_and_help_is_read_only(server):
         wait_for("ls")
         deadline = time.monotonic() + 8
         while time.monotonic() < deadline:
-            result = subprocess.run(["tmux", "list-clients", "-F", "#{@piux_view}"],
+            result = subprocess.run(["tmux", "list-clients", "-F", "#{@pimux_view}"],
                                     env=env, capture_output=True, text=True)
             if result.stdout.strip() == "ls":
                 break
@@ -524,7 +449,7 @@ def test_empty_manager_creates_only_on_request_and_help_is_read_only(server):
         os.write(master, b"\x01d")
         assert client.wait(timeout=8) == 0
         assert tmux("list-sessions", "-F", "#{session_name}") == "ls"
-        listing = subprocess.check_output([str(SOURCE / "piux"), "ls"], env=env, text=True)
+        listing = subprocess.check_output([str(SOURCE / "pimux"), "ls"], env=env, text=True)
         assert "ls  " in listing and "~view-" not in listing
     finally:
         if client.poll() is None:
@@ -534,18 +459,18 @@ def test_empty_manager_creates_only_on_request_and_help_is_read_only(server):
         os.close(slave)
 
 
-def test_language_menu_persists_and_syncs_only_piux_across_servers(server):
+def test_language_menu_persists_and_syncs_only_pimux_across_servers(server):
     env, tmux = server
-    preference = Path(env["PIUX_LANGUAGE_FILE"])
+    preference = Path(env["PIMUX_LANGUAGE_FILE"])
     preference.unlink()
-    Path(env["PIUX_RUNTIME_FILE"]).write_text(f"{shutil.which('tmux')}\nparallel\n{shutil.which('tmux')}\n")
-    tmux("source-file", str(SOURCE / "piux.conf"))
+    Path(env["PIMUX_RUNTIME_FILE"]).write_text(f"{shutil.which('tmux')}\nparallel\n{shutil.which('tmux')}\n")
+    tmux("source-file", str(SOURCE / "pimux.conf"))
     tmux("new-session", "-d", "-s", "untouched")
     untouched = tmux("display-message", "-p", "-t", "=untouched:", "#{session_id}")
-    tmux("set-option", "-t", untouched, "@piux_launcher", "")
+    tmux("set-option", "-t", untouched, "@pimux_launcher", "")
     original_options = tmux("show-options", "-t", untouched)
     tmux("-L", "parallel", "-f", "/dev/null", "new-session", "-d", "-s", "fresh")
-    tmux("-L", "parallel", "source-file", str(SOURCE / "piux.conf"))
+    tmux("-L", "parallel", "source-file", str(SOURCE / "pimux.conf"))
     before = {socket: tmux("-L", socket, "list-panes", "-a", "-F", "#{pane_id} #{pane_pid}")
               for socket in ["default", "parallel"]}
     clients = []
@@ -554,7 +479,7 @@ def test_language_menu_persists_and_syncs_only_piux_across_servers(server):
     def start(*args):
         master, slave = os.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 0, 0))
-        process = subprocess.Popen([str(SOURCE / "piux"), *args], env=env, stdin=slave,
+        process = subprocess.Popen([str(SOURCE / "pimux"), *args], env=env, stdin=slave,
                                    stdout=slave, stderr=slave, start_new_session=True)
         clients.append((process, master, slave))
         outputs[master] = bytearray()
@@ -580,7 +505,7 @@ def test_language_menu_persists_and_syncs_only_piux_across_servers(server):
         os.write(tty, key)
 
     try:
-        help_text = subprocess.check_output([str(SOURCE / "piux"), "-h"], env=env, text=True)
+        help_text = subprocess.check_output([str(SOURCE / "pimux"), "-h"], env=env, text=True)
         assert "Personal terminal" in help_text and not preference.exists()
         first, first_tty = start("--system", "-n", "seed")
         second, second_tty = start("-n", "fresh")
@@ -589,7 +514,7 @@ def test_language_menu_persists_and_syncs_only_piux_across_servers(server):
         assert "detach" in tmux("list-clients", "-F", "#{E:status-format[1]}")
         change_language(first_tty, b"z", "Work terminal")
         wait_for(lambda: preference.exists() and preference.read_text() == "zh\n" and
-                        tmux("-L", "parallel", "list-clients", "-F", "#{@piux_language}") == "zh")
+                        tmux("-L", "parallel", "list-clients", "-F", "#{@pimux_language}") == "zh")
         wait_for(lambda: "工作终端".encode() in outputs[first_tty])
         assert "离开" in tmux("list-clients", "-F", "#{E:status-format[1]}")
         assert tmux("show-options", "-t", untouched) == original_options
@@ -598,7 +523,7 @@ def test_language_menu_persists_and_syncs_only_piux_across_servers(server):
             assert set(before[socket].splitlines()) == set(tmux(
                 "-L", socket, "list-panes", "-a", "-F", "#{pane_id} #{pane_pid}"
             ).splitlines())
-        assert "个人工作终端" in subprocess.check_output([str(SOURCE / "piux"), "-h"], env=env, text=True)
+        assert "个人工作终端" in subprocess.check_output([str(SOURCE / "pimux"), "-h"], env=env, text=True)
         os.write(first_tty, b"\x1b")
         wait_for(lambda: "__client" not in tmux("show-messages", "-J"))
         os.write(first_tty, b"\x01/")
@@ -618,13 +543,13 @@ def test_language_menu_persists_and_syncs_only_piux_across_servers(server):
             return not state or state.startswith("Z")
         wait_for(server_stopped)
         tmux("-L", "parallel", "-f", "/dev/null", "new-session", "-d", "-s", "fresh")
-        tmux("-L", "parallel", "source-file", str(SOURCE / "piux.conf"))
+        tmux("-L", "parallel", "source-file", str(SOURCE / "pimux.conf"))
         third, third_tty = start("-n", "fresh")
         wait_for(lambda: bool(tmux("-L", "parallel", "list-clients", "-F", "#{session_id}")))
-        assert tmux("-L", "parallel", "list-clients", "-F", "#{@piux_language}") == "zh"
+        assert tmux("-L", "parallel", "list-clients", "-F", "#{@pimux_language}") == "zh"
         change_language(third_tty, b"e", "工作终端")
         wait_for(lambda: preference.read_text() == "en\n" and
-                        tmux("show-options", "-Aqv", "-t", "=seed:", "@piux_language") == "en")
+                        tmux("show-options", "-Aqv", "-t", "=seed:", "@pimux_language") == "en")
         wait_for(lambda: b"Work terminal" in outputs[third_tty])
         os.write(third_tty, b"\x1b")
         wait_for(lambda: "__client" not in tmux("-L", "parallel", "show-messages", "-J"))
@@ -652,3 +577,102 @@ def test_language_menu_persists_and_syncs_only_piux_across_servers(server):
             os.close(master)
             os.close(slave)
         subprocess.run(["tmux", "-L", "parallel", "kill-server"], env=env, capture_output=True)
+
+
+def test_default_runtime_isolates_system_server(tmp_path, server):
+    env, tmux = server
+    env = {**env, 'PIMUX_RUNTIME_FILE': str(tmp_path / 'absent-runtime')}
+    before = tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid}')
+    before_theme = tmux('show-options', '-gqv', 'status-right')
+    try:
+        subprocess.run(
+            ['bash', '-c', 'source "$1"; configure_runtime; tmux new-session -d -s isolated',
+             'test', str(SOURCE / 'pimux')], env=env, check=True, capture_output=True,
+        )
+        assert tmux('-L', 'pimux', 'list-sessions', '-F', '#{session_name}') == 'isolated'
+        assert tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid}') == before
+        assert tmux('show-options', '-gqv', 'status-right') == before_theme
+    finally:
+        subprocess.run(['tmux', '-L', 'pimux', 'kill-server'], env=env, capture_output=True)
+
+
+def test_search_gpu_popup_and_reload_preserve_running_panes(tmp_path, server):
+    env, tmux = server
+    bindir = tmp_path / 'bin'
+    bindir.mkdir()
+    smi = bindir / 'nvidia-smi'
+    smi.write_text('#!/bin/sh\ncase "$1" in --query-gpu=*) echo "0, 50, 4096";; *) echo "GPU-MOCK 1234 demo-process 4096MiB";; esac\n')
+    smi.chmod(0o755)
+    env['PATH'] = f'{bindir}:{env["PATH"]}'
+    tmux('set-environment', '-g', 'PATH', env['PATH'])
+    tmux('set-environment', '-g', 'PIMUX_RUNTIME_FILE', env['PIMUX_RUNTIME_FILE'])
+    tmux('set-environment', '-g', 'PIMUX_LANGUAGE_FILE', env['PIMUX_LANGUAGE_FILE'])
+    tmux('source-file', str(SOURCE / 'pimux.conf'))
+    tmux('set-option', '-g', '@pimux_launcher', str(SOURCE / 'pimux'))
+    # Literal brackets must not become a pattern; hidden windows are searchable.
+    wanted = tmux('new-window', '-d', '-t', 'seed', '-n', 'Train[Fast]', '-P', '-F', '#{window_id}')
+    before = tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid}')
+    master, slave = os.openpty()
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 32, 140, 0, 0))
+    client = subprocess.Popen([str(SOURCE / 'pimux'), '-n', 'seed'], env=env,
+                              stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
+    output = bytearray()
+
+    def wait_for(condition):
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            if condition():
+                return
+            if select.select([master], [], [], .05)[0]:
+                output.extend(os.read(master, 65536))
+        pytest.fail(output.decode(errors='replace')[-2000:])
+
+    try:
+        wait_for(lambda: bool(tmux('list-clients', '-F', '#{session_id}')))
+        view = tmux('list-clients', '-F', '#{session_id}')
+        os.write(master, b'\x01s')
+        wait_for(lambda: '会话管理'.encode() in output)
+        os.write(master, b'/missing-query')
+        wait_for(lambda: '没有匹配'.encode() in output)
+        os.write(master, b'\x1b')
+        wait_for(lambda: ' / 搜索'.encode() in output)
+        output.clear()
+        os.write(master, b'/train[')
+        wait_for(lambda: b'Train[Fast]' in output)
+        os.write(master, b'\r')
+        wait_for(lambda: tmux('display-message', '-p', '-t', f'{view}:', '#{window_id}') == wanted)
+        output.clear()
+        os.write(master, b'\x01g')
+        wait_for(lambda: b'GPU-MOCK 1234 demo-process 4096MiB' in output)
+        assert tmux('display-message', '-p', '-t', f'{view}:', '#{window_id}') == wanted
+        assert not tmux('display-message', '-p', '-t', f'{view}:', '#{pane_mode}')
+        os.write(master, b'q')
+        wait_for(lambda: '__gpu' not in tmux('show-messages', '-J'))
+        tmux('set-option', '-t', view, 'status-interval', '17')
+        os.write(master, b'\x01r')
+        wait_for(lambda: tmux('show-options', '-qv', '-t', view, 'status-interval') == '5')
+        after = set(tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid}').splitlines())
+        assert after == set(before.splitlines())
+        os.write(master, b'\x01d')
+        assert client.wait(timeout=5) == 0
+    finally:
+        if client.poll() is None:
+            client.terminate()
+            client.wait(timeout=5)
+        os.close(master)
+        os.close(slave)
+
+
+def test_uninstall_preserves_settings_and_refuses_unrelated_files(tmp_path):
+    assert install(tmp_path).returncode == 0
+    launcher = tmp_path / '.local/bin/pimux'
+    theme = tmp_path / '.config/pimux/tmux.conf'
+    before = theme.read_bytes()
+    command = ['bash', '-c', 'source "$1"; uninstall_launcher "$2"', 'test',
+               str(SOURCE / 'uninstall.sh'), str(tmp_path)]
+    subprocess.run(command, check=True, capture_output=True)
+    assert not launcher.exists()
+    assert theme.read_bytes() == before
+    launcher.write_text('# personal tool\n')
+    assert subprocess.run(command, capture_output=True).returncode != 0
+    assert launcher.read_text() == '# personal tool\n'
