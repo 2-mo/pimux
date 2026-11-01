@@ -10,11 +10,11 @@ manager() (
         current=$(logical_session "$(client_session "$client")")
         [[ $expand_current != windows ]] || expanded[$current]=1
     fi
-    restore_manager() { printf '\033[0m\033[?7h\033[?25h\033[?1049l'; }
+    restore_manager() { printf '\033[?1000l\033[?1006l\033[0m\033[?7h\033[?25h\033[?1049l'; }
     trap restore_manager EXIT
     trap 'exit 130' INT TERM HUP
     trap 'resized=true' WINCH
-    printf '\033[?1049h\033[?25l\033[?7l'
+    printf '\033[?1049h\033[?25l\033[?7l\033[?1000h\033[?1006h'
     while :; do
         load_language
         roots=(); windows=(); labels=()
@@ -72,12 +72,39 @@ manager() (
             label=$(tr_ui ' / 搜索  ↑↓ 选择  ←→ 展开  Enter 进入  n 新建  x 关闭  q 返回')
         fi
         printf '\033[%s;1H\033[38;2;255;175;95m%s\033[0m' "$((rows > 3 ? rows - 2 : 1))" "$label"
+        printf '\n\033[38;2;156;163;175m%s\033[0m' "$(tr_ui ' 点击进入  点箭头展开/收起  滚轮翻动')"
         [[ -z $error ]] || printf '\n %s' "$error"
         error=''
         key=''
         resized=false
         read_ui_key || { [[ $resized == true ]] && continue; return; }
         key=$PIMUX_KEY
+        [[ $key != ignored ]] || continue
+        if [[ $key == mouse ]]; then
+            (( PIMUX_MOUSE_Y >= 4 && PIMUX_MOUSE_Y < 4 + visible )) || continue
+            case $PIMUX_MOUSE_BUTTON in
+                64|65)
+                    if (( PIMUX_MOUSE_BUTTON == 64 )); then offset=$((offset > 3 ? offset - 3 : 0))
+                    else offset=$((offset + 3)); fi
+                    i=$((count > visible ? count - visible : 0))
+                    (( offset <= i )) || offset=$i
+                    (( selected >= offset )) || selected=$offset
+                    (( selected < offset + visible )) || selected=$((offset + visible - 1))
+                    continue ;;
+                0)
+                    i=$((offset + PIMUX_MOUSE_Y - 4))
+                    (( i < count )) || continue
+                    selected=$i
+                    if [[ -z ${windows[i]} ]] && (( PIMUX_MOUSE_X <= 3 )); then
+                        sid=${roots[i]}
+                        if [[ ${expanded[$sid]:-} == 1 ]]; then expanded[$sid]=0
+                        else expanded[$sid]=1; fi
+                        continue
+                    fi
+                    key='' ;;
+                *) continue ;;
+            esac
+        fi
         if [[ $searching == true ]]; then
             case $key in
                 $'\177'|$'\b') query=${query%?}; selected=0; offset=0; continue ;;
@@ -98,9 +125,9 @@ manager() (
                 if (( count > 0 )); then current=${roots[selected]}; expanded[$current]=0; fi
                 ;;
             n)
-                printf '\033[%s;1H\033[2K\033[?25h' "$rows"
+                printf '\033[?1000l\033[?1006l\033[%s;1H\033[2K\033[?25h' "$rows"
                 name=''; IFS= read -er -p "$(tr_ui ' 会话名称（空白取消）：')" name || true
-                printf '\033[?25l'
+                printf '\033[?25l\033[?1000h\033[?1006h'
                 [[ -n $name ]] || continue
                 if root=$(ensure_session "$name" 2>&1); then
                     restore_manager; trap - EXIT
@@ -126,7 +153,7 @@ manager() (
                     name=$(tmux display-message -p -t "$sid:$wid" '#{window_name}')
                     printf_ui ' 关闭窗口 %s，影响所有连接？[y/N] ' "$name"
                 fi
-                answer=''; IFS= read -rsn1 answer || true
+                answer=''; read_ui_key && answer=$PIMUX_KEY
                 [[ $answer == y ]] || continue
                 if [[ -z $wid ]]; then
                     close_session "$sid" || error=$(tr_ui '会话已关闭或不存在。')

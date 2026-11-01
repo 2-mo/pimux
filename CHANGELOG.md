@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.0
+
+- Show a high-contrast prefix badge and common actions while Ctrl-a waits for the next key; Esc cancels.
+- Click manager entries to open them, click arrows to expand or collapse sessions, and scroll with the mouse wheel.
+- Scroll GPU details with the mouse wheel; restore terminal mouse reporting when a view closes.
+- Enable mouse support in managed views on shared tmux servers as well as fresh installations.
+- Update with `pimux update` or the action menu, using the existing checksum-verified installer and live reload.
+
 ## 0.1.1
 
 - Use `pimux` directly after installation; configure the command path for future Bash and existing Zsh terminals with backups.

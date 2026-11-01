@@ -8,10 +8,14 @@ declare -A PIMUX_EN=(
     [' / 搜索  ↑↓ 选择  ←→ 展开  Enter 进入  n 新建  x 关闭  q 返回']=' / search  Arrows select/expand  Enter open  n new  x close  q back'
     [' 输入筛选  ↑↓ 选择  Enter 进入  Backspace 删除  Esc 清除']=' Type to filter  Arrows select  Enter open  Backspace delete  Esc clear'
     ['显卡详情']='GPU details'
+    ['更新 PiMux']='Update PiMux'
+    ['PiMux 更新失败。']='PiMux update failed.'
+    ['按 Enter 返回。']='Press Enter to return.'
+    [' 点击进入  点箭头展开/收起  滚轮翻动']=' Click to open  Click arrow to expand/collapse  Wheel to scroll'
     ['查看显卡详情；q / Esc 返回']='Show GPU details; q / Esc to return'
     ['未找到 nvidia-smi；显卡详情需要 NVIDIA 驱动。']='nvidia-smi was not found; GPU details require an NVIDIA driver.'
     ['显卡查询失败或超时；按 r 重试。']='GPU query failed or timed out; press r to retry.'
-    ['每 5 秒刷新  ↑↓ / PgUp / PgDn 滚动  r 刷新  q / Esc 返回']='Every 5s  Arrows / PgUp / PgDn scroll  r refresh  q / Esc back'
+    ['每 5 秒刷新  滚轮 / ↑↓ / PgUp / PgDn 滚动  r 刷新  q / Esc 返回']='Every 5s  Wheel / Arrows / PgUp / PgDn scroll  r refresh  q / Esc back'
     ['新建窗口']='New window'
     ['重命名窗口']='Rename window'
     ['窗口名称：']='Window name:'
@@ -108,7 +112,7 @@ printf_ui() {
 
 # Keep a printable key typed immediately after Esc for the next interaction.
 read_ui_key() {
-    local suffix='' tail=''
+    local suffix='' tail='' report=''
     local -a options=(-rsn1)
     PIMUX_KEY=''
     if [[ -n ${PIMUX_PENDING_KEY:-} ]]; then
@@ -122,6 +126,22 @@ read_ui_key() {
         if [[ $suffix == '[' || $suffix == O ]]; then
             IFS= read -rsn1 -t 0.05 tail || true
             PIMUX_KEY+="$suffix$tail"
+            if [[ $PIMUX_KEY == $'\e[<' ]]; then
+                # SGR mouse reports contain decimal button, column and row.
+                PIMUX_KEY=ignored
+                while (( ${#report} < 32 )); do
+                    IFS= read -rsn1 -t 0.05 tail || return 0
+                    report+=$tail
+                    [[ $tail != M && $tail != m ]] || break
+                done
+                if [[ $report =~ ^([0-9]{1,6})\;([0-9]{1,6})\;([0-9]{1,6})M$ ]]; then
+                    PIMUX_MOUSE_BUTTON=$((10#${BASH_REMATCH[1]}))
+                    PIMUX_MOUSE_X=$((10#${BASH_REMATCH[2]}))
+                    PIMUX_MOUSE_Y=$((10#${BASH_REMATCH[3]}))
+                    PIMUX_KEY=mouse
+                fi
+                return 0
+            fi
             if [[ $PIMUX_KEY == $'\e[5' || $PIMUX_KEY == $'\e[6' ]]; then
                 tail=''; IFS= read -rsn1 -t 0.05 tail || true; PIMUX_KEY+=$tail
             fi
@@ -185,7 +205,8 @@ show_menu() {
         '' \
         'Language / 语言' l "$(menu_action "$client" language)" \
         "$(tr_ui '离开，保留任务')" d 'detach-client' \
-        "$(tr_ui '快捷键帮助')" / "$(menu_action "$client" help false)"
+        "$(tr_ui '快捷键帮助')" / "$(menu_action "$client" help false)" \
+        "$(tr_ui '更新 PiMux')" u "$(menu_action "$client" update)"
 }
 
 show_language_menu() {

@@ -236,6 +236,13 @@ def test_independent_view_shares_programs_and_preserves_last_reference(tmp_path,
         wait_for(lambda: tmux("list-clients", "-t", view, "-F", "#{client_width}") == "80")
         narrow = tmux("list-clients", "-t", view, "-F", "#{E:status-format[1]}")
         assert "…" in narrow and "/leaf" in narrow
+        os.write(view_tty, b'\x01')
+        wait_for(lambda: tmux('list-clients', '-t', view, '-F', '#{client_prefix}') == '1')
+        assert tmux('list-clients', '-t', view, '-F', '#{E:status-format[1]}') != narrow
+        assert tmux('list-clients', '-t', first_view, '-F', '#{client_prefix}') == '0'
+        os.write(view_tty, b'\x1b')
+        wait_for(lambda: tmux('list-clients', '-t', view, '-F', '#{client_prefix}') == '0')
+        assert tmux('list-clients', '-t', view, '-F', '#{E:status-format[1]}') == narrow
         listing = subprocess.check_output([str(SOURCE / "pimux"), "ls"], env=env, text=True)
         assert len(listing.splitlines()) == 2 and "~view-" not in listing
         caller_env = {**env, "TMUX_PANE": original_pane.split()[0]}
@@ -361,6 +368,8 @@ def test_shared_server_reload_and_short_command_preserve_other_sessions(server):
     assert globals_after == global_before
     assert tmux('show-options', '-t', 'personal') == personal_before
     assert tmux('show-options', '-qv', '-t', 'seed', 'prefix') == 'C-a'
+    assert tmux('show-options', '-qv', '-t', 'seed', 'mouse') == 'on'
+    assert tmux('show-options', '-Aqv', '-t', 'personal', 'mouse') == 'off'
     assert tmux('show-options', '-qv', '-t', 'seed', 'status-interval') == '5'
     assert tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid}') == panes_before
 
@@ -747,3 +756,176 @@ def test_uninstall_preserves_settings_and_refuses_unrelated_files(tmp_path):
     launcher.write_text('# personal tool\n')
     assert subprocess.run(command, capture_output=True).returncode != 0
     assert launcher.read_text() == '# personal tool\n'
+
+
+def test_manager_mouse_expands_scrolls_and_opens_search_result(server):
+    env, tmux = server
+    wanted = ''
+    for index in range(1, 16):
+        window = tmux('new-window', '-d', '-t', 'seed', '-n', f'mouse-{index:02}', '-P', '-F', '#{window_id}')
+        if index == 12:
+            wanted = window
+    before = tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid}')
+    master, slave = os.openpty()
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 14, 110, 0, 0))
+    script = '''source "$1"
+configure_runtime
+load_manager
+connect_session() { printf '\\nOPEN:%s:%s\\n' "$1" "$2"; }
+manager
+'''
+    process = subprocess.Popen(['bash', '-c', script, 'test', str(SOURCE / 'pimux')],
+                               env=env, stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
+    output = bytearray()
+
+    def wait_for(value):
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            if value in output:
+                return
+            if select.select([master], [], [], .05)[0]:
+                output.extend(os.read(master, 65536))
+        pytest.fail(output.decode(errors='replace')[-2000:])
+
+    try:
+        wait_for(b'> seed')
+        os.write(master, b'\x1b[<0;2;4M\x1b[<0;2;4m')
+        wait_for(b'mouse-04')
+        output.clear()
+        os.write(master, b'\x1b[<65;10;5M')
+        wait_for(b'mouse-07')
+        os.write(master, b'/mouse-12')
+        wait_for(b'mouse-12')
+        output.clear()
+        # Release and out-of-list clicks must not enter or corrupt the filter.
+        os.write(master, b'\x1b[<0;10;4m\x1b[<0;10;1M')
+        wait_for(b'mouse-12')
+        assert b'OPEN:' not in output
+        os.write(master, b'\x1b[<0;10;4M')
+        wait_for(f'OPEN:$0:{wanted}'.encode())
+        assert process.wait(timeout=5) == 0
+        assert b'\x1b[?1000l\x1b[?1006l' in output
+        assert tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid}') == before
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            process.wait(timeout=5)
+        os.close(master)
+        os.close(slave)
+
+
+def test_gpu_mouse_wheel_scrolls_and_restores_terminal(tmp_path, server):
+    env, _ = server
+    bindir = tmp_path / 'gpu-bin'
+    bindir.mkdir()
+    smi = bindir / 'nvidia-smi'
+    smi.write_text('#!/bin/sh\nseq -f "GPU row %02g" 1 60\n')
+    smi.chmod(0o755)
+    env['PATH'] = f'{bindir}:{env["PATH"]}'
+    master, slave = os.openpty()
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 20, 110, 0, 0))
+    process = subprocess.Popen([str(SOURCE / 'pimux'), '__gpu'], env=env,
+                               stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
+    output = bytearray()
+
+    def wait_for(value):
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            if value in output:
+                return
+            if select.select([master], [], [], .05)[0]:
+                output.extend(os.read(master, 65536))
+        pytest.fail(output.decode(errors='replace')[-2000:])
+
+    try:
+        wait_for(b'GPU row 15')
+        assert b'GPU row 18' not in output
+        output.clear()
+        os.write(master, b'\x1b[<65;10;5M')
+        wait_for(b'GPU row 18')
+        output.clear()
+        os.write(master, b'\x1b[<64;10;5M')
+        wait_for(b'GPU row 01')
+        os.write(master, b'q')
+        wait_for(b'\x1b[?1000l\x1b[?1006l')
+        assert process.wait(timeout=5) == 0
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            process.wait(timeout=5)
+        os.close(master)
+        os.close(slave)
+
+
+@pytest.mark.parametrize('download_status', [0, 22])
+def test_update_runs_only_successfully_downloaded_installer(tmp_path, download_status):
+    curl = tmp_path / 'curl'
+    curl.write_text('''#!/usr/bin/env bash
+while (( $# )); do
+    if [[ $1 == -o ]]; then destination=$2; break; fi
+    shift
+done
+printf '%s' "$destination" > "$UPDATE_DOWNLOAD_LOG"
+printf 'printf "UPDATE_EXECUTED\\\\n"\\n' > "$destination"
+exit "$UPDATE_DOWNLOAD_STATUS"
+''')
+    curl.chmod(0o755)
+    log = tmp_path / 'download-path'
+    env = dict(os.environ, PATH=f'{tmp_path}:{os.environ["PATH"]}',
+               UPDATE_DOWNLOAD_LOG=str(log), UPDATE_DOWNLOAD_STATUS=str(download_status))
+    result = subprocess.run([str(SOURCE / 'pimux'), 'update'], env=env,
+                            capture_output=True, text=True)
+    assert result.returncode == download_status
+    assert ('UPDATE_EXECUTED' in result.stdout) == (download_status == 0)
+    assert not Path(log.read_text()).exists()
+
+
+def test_mouse_click_passes_through_tmux_popup_to_manager(server):
+    env, tmux = server
+    tmux('source-file', str(SOURCE / 'pimux.conf'))
+    tmux('set-option', '-g', '@pimux_launcher', str(SOURCE / 'pimux'))
+    tmux('set-environment', '-g', 'PIMUX_RUNTIME_FILE', env['PIMUX_RUNTIME_FILE'])
+    tmux('set-environment', '-g', 'PIMUX_LANGUAGE_FILE', env['PIMUX_LANGUAGE_FILE'])
+    original = tmux('display-message', '-p', '-t', 'seed', '#{window_id}')
+    wanted = tmux('new-window', '-d', '-t', 'seed', '-n', 'mouse-target', '-P', '-F', '#{window_id}')
+    master, slave = os.openpty()
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 30, 120, 0, 0))
+    client = subprocess.Popen(['tmux', 'attach-session', '-t', 'seed'], env=env,
+                              stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
+    output = bytearray()
+    popup = None
+
+    def wait_for(condition):
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            if condition():
+                return
+            if select.select([master], [], [], .05)[0]:
+                output.extend(os.read(master, 65536))
+        pytest.fail(output.decode(errors='replace')[-2000:])
+
+    try:
+        tty = os.ttyname(slave)
+        wait_for(lambda: tty in tmux('list-clients', '-F', '#{client_name}'))
+        socket = tmux('display-message', '-p', '#{socket_path}')
+        # Fix the popup position so the terminal click has known screen coordinates.
+        import shlex
+        command = shlex.join([str(SOURCE / 'pimux'), '__manager', socket, tty, 'windows'])
+        popup = subprocess.Popen(['tmux', 'display-popup', '-E', '-c', tty,
+                                  '-x', '0', '-y', '0', '-w', '100', '-h', '20', command], env=env)
+        wait_for(lambda: '点击进入'.encode() in output)
+        os.write(master, b'\x1b[<0;20;7M\x1b[<0;20;7m')
+        wait_for(lambda: tmux('list-clients', '-F', '#{window_id}') == wanted)
+        assert popup.wait(timeout=5) == 0
+        assert tmux('display-message', '-p', '-t', '=seed:', '#{window_id}') == original
+        os.write(master, b'\x01d')
+        assert client.wait(timeout=5) == 0
+    finally:
+        if client.poll() is None:
+            client.terminate()
+            client.wait(timeout=5)
+        if popup is not None and popup.poll() is None:
+            popup.terminate()
+            popup.wait(timeout=5)
+        os.close(master)
+        os.close(slave)

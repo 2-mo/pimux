@@ -33,6 +33,7 @@ Alternatively, download and extract `pimux-linux.tar.gz` from [Releases](https:/
 - **Ready-made styling.** The tmux theme and Starship prompt are enabled together. The prompt shows the current directory, Git branch, Python environment, time and slow command duration.
 - **Independent window selection.** Two terminals can view different windows in the same session while sharing the running programs.
 - **Search, then jump.** Open the manager, press `/`, and type a session name, window name or directory. Matches update as you type. Arrows select, Enter opens, Backspace edits, and Esc clears the search. Search is literal and case-insensitive.
+- **Mouse support.** Click manager entries to open them, click the left arrow to expand or collapse, and use the wheel to scroll the manager or GPU details. Mouse support is enabled automatically.
 - **GPU activity at a glance.** Bold circles show approximate utilization, with four GPUs per group. Press `Ctrl-a g` for live utilization, memory and process details in a popup.
 - **English and Chinese.** Open `Ctrl-a h`, choose `Language / 语言`, then select a language. The preference is saved automatically.
 - **An isolated tmux server.** Fresh installations use their own `pimux` socket. Your normal tmux configuration is preserved. Shell startup files receive only a command-path entry. Styled shells load your existing Bash setup, then apply PiMux's prompt inside the workspace.
@@ -51,10 +52,11 @@ pimux ls project      # Filter the listing
 pimux gpu             # Live GPU details
 pimux doctor          # Version, tmux, color and clipboard diagnostics
 pimux reload          # Reload without restarting tasks
+pimux update          # Install the latest release without restarting tasks
 pimux --version
 ```
 
-Press `Ctrl-a`, release it, then press the action key:
+Press `Ctrl-a`, release it, then press the action key. A bright orange badge shows that PiMux is waiting for the next key, alongside common actions. Esc cancels and restores the normal status bar:
 
 | Key | Action |
 |---|---|
@@ -73,7 +75,7 @@ Press `Ctrl-a`, release it, then press the action key:
 | `/` | Keyboard help |
 | `r` / `d` | Reload / detach and leave tasks running |
 
-In the manager, `n` creates a session, `x` closes the selected item after confirmation, and `q` returns. The GPU popup refreshes every five seconds; arrows and Page Up/Down scroll, and `r` refreshes immediately. Both popups belong to the current client and do not replace another terminal's application pane.
+In the manager, `n` creates a session, `x` closes the selected item after confirmation, and `q` returns. The GPU popup refreshes every five seconds; the mouse wheel, arrows and Page Up/Down scroll, and `r` refreshes immediately. Both popups belong to the current client and do not replace another terminal's application pane.
 
 ## GPU circles
 
@@ -99,7 +101,7 @@ Clipboard transfer uses OSC 52 and depends on the outer terminal. Use `pimux doc
 
 ## Update and uninstall
 
-Run the install command again to update. It preserves language/runtime preferences and backs up changed managed files. `pimux reload` and `Ctrl-a r` use the same reload path, including local status overrides in connected PiMux views.
+Run `pimux update`, or open `Ctrl-a h` and choose **Update PiMux**. The updater downloads the latest release, verifies its checksum, preserves language/runtime preferences and backs up changed managed files. It reloads connected workspaces without restarting tasks. The install command also works for updating older versions that do not have the update command. `pimux reload` and `Ctrl-a r` use the same reload path, including local status overrides in connected PiMux views.
 
 ```bash
 pimux uninstall

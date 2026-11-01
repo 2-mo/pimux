@@ -129,7 +129,7 @@ main() {
     install_starship
     install_files "$HOME" "$PIMUX_SOURCE_DIR"
     "$HOME/.local/bin/pimux" reload
-    printf '\nReady. Open your terminal workspace:\n  pimux\n'
+    printf '\nPiMux %s is ready. Open your terminal workspace:\n  pimux\n' "$PIMUX_VERSION"
     case ":$PATH:" in
         *":$HOME/.local/bin:"*) ;;
         *) printf 'For this terminal, run: export PATH="$HOME/.local/bin:$PATH"\nNew Bash and Zsh terminals are configured automatically.\n' ;;
