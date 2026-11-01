@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.2
+
+- Stabilize isolated keyboard checks by using an outer terminal environment and waiting for the prefix key to be ready.
+
 ## 0.3.1
 
 - Copy literal directory paths correctly on tmux versions that escape display output, including directory names containing `$`.
