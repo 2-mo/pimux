@@ -3,10 +3,10 @@ gpu_view() (
     local snapshot='' key rows cols height offset=0 last=-5 refresh=true i
     local -a lines=()
     [[ -t 0 && -t 1 ]] || return 1
-    trap "printf '\033[0m\033[?7h\033[?25h\033[?1049l'" EXIT
+    trap "printf '\033[?1000l\033[?1006l\033[0m\033[?7h\033[?25h\033[?1049l'" EXIT
     trap 'exit 130' INT TERM HUP
     trap ':' WINCH
-    printf '\033[?1049h\033[?25l\033[?7l'
+    printf '\033[?1049h\033[?25l\033[?7l\033[?1000h\033[?1006h'
     while :; do
         if [[ $refresh == true ]] || (( SECONDS - last >= 5 )); then
             if ! command -v nvidia-smi >/dev/null 2>&1; then
@@ -25,11 +25,16 @@ gpu_view() (
             printf '%s\n' "${lines[i]}"
         done
         printf '\033[%s;1H\033[38;2;255;175;95m%s\033[0m' "$((rows > 1 ? rows - 1 : 1))" \
-            "$(tr_ui '每 5 秒刷新  ↑↓ / PgUp / PgDn 滚动  r 刷新  q / Esc 返回')"
+            "$(tr_ui '每 5 秒刷新  滚轮 / ↑↓ / PgUp / PgDn 滚动  r 刷新  q / Esc 返回')"
         key=''
         read_ui_key 1 || continue
         key=$PIMUX_KEY
         case $key in
+            mouse)
+                case $PIMUX_MOUSE_BUTTON in
+                    64) offset=$((offset > 3 ? offset - 3 : 0)) ;;
+                    65) offset=$((offset + 3)) ;;
+                esac ;;
             q|$'\e') return ;;
             r) refresh=true ;;
             j|$'\e[B'|$'\eOB') offset=$((offset + 1)) ;;
