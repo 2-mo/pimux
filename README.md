@@ -13,7 +13,7 @@ A coordinated purple/cyan theme, a useful shell prompt, searchable sessions and 
 On Linux:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/2-mo/pimux/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/2-mo/pimux/main/install.sh | bash && export PATH="$HOME/.local/bin:$PATH"
 ```
 
 The installer verifies the release checksum, installs missing system dependencies through apt on Debian/Ubuntu, installs or reuses [Starship](https://starship.rs/), and sets up the complete workspace in your home directory. Administrator access is only needed when system packages are missing. NVIDIA drivers are optional and are never installed by PiMux.
@@ -21,12 +21,12 @@ The installer verifies the release checksum, installs missing system dependencie
 Open the installed workspace:
 
 ```bash
-~/.local/bin/pimux
+pimux
 ```
 
-Inside PiMux, `pimux` is on PATH automatically. Outside PiMux, use the full path if your shell does not already include `~/.local/bin`.
+The install command enables `pimux` in this terminal immediately. The installer also configures the command path for future Bash terminals and Zsh when present, preserving your existing settings and backing up changed startup files.
 
-Alternatively, download and extract `pimux-linux.tar.gz` from [Releases](https://github.com/2-mo/pimux/releases/latest), then run `bash pimux/setup-tmux.sh`. The same installer updates an existing installation and backs up changed managed files.
+Alternatively, download and extract `pimux-linux.tar.gz` from [Releases](https://github.com/2-mo/pimux/releases/latest), then run `bash pimux/setup-tmux.sh` and open a new terminal. The same installer updates an existing installation and backs up changed managed files.
 
 ## Your workspace
 
@@ -35,11 +35,13 @@ Alternatively, download and extract `pimux-linux.tar.gz` from [Releases](https:/
 - **Search, then jump.** Open the manager, press `/`, and type a session name, window name or directory. Matches update as you type. Arrows select, Enter opens, Backspace edits, and Esc clears the search. Search is literal and case-insensitive.
 - **GPU activity at a glance.** Bold circles show approximate utilization, with four GPUs per group. Press `Ctrl-a g` for live utilization, memory and process details in a popup.
 - **English and Chinese.** Open `Ctrl-a h`, choose `Language / 语言`, then select a language. The preference is saved automatically.
-- **An isolated tmux server.** Fresh installations use their own `pimux` socket. Your normal tmux configuration and Bash dotfiles are not rewritten. Styled shells load your existing Bash setup, then apply PiMux's prompt inside the workspace.
+- **An isolated tmux server.** Fresh installations use their own `pimux` socket. Your normal tmux configuration is preserved. Shell startup files receive only a command-path entry. Styled shells load your existing Bash setup, then apply PiMux's prompt inside the workspace.
 
 PiMux is a workspace inside your existing terminal or SSH connection; it is not a terminal emulator. It runs ordinary shell commands and keeps tasks alive when you detach. Closing a shared window or session ends its tasks for every connected terminal; the manager asks before doing so. Server reboots do not preserve running processes.
 
 ## Everyday commands
+
+Start with `pimux`. Inside the workspace, `Ctrl-a h` opens the menu with management, GPU details and help; the status bar keeps this shortcut visible.
 
 ```bash
 pimux                 # Session manager; never creates a session implicitly
@@ -89,7 +91,7 @@ The status bar refreshes on a five-second timer; window changes and other redraw
 
 This release supports Linux with Bash 4+, tmux 3.2+, coreutils, grep, sed, util-linux and the `tmux-256color` terminfo entry. The installer handles dependencies on Debian/Ubuntu. On other Linux distributions, install those prerequisites using your system package manager. macOS and native Windows are not currently supported; Windows users can use a Linux environment through WSL or SSH.
 
-For an existing system tmux session, `pimux --system ls` lists it and `pimux --system -n NAME` enters it. Detach first when switching between tmux servers. Normal PiMux installation does not reload or restyle unmarked sessions on the system server. Explicitly running `pimux --system reload` applies PiMux's theme and bindings to that server.
+For an existing system tmux session, `pimux --system ls` lists it and `pimux --system -n NAME` enters it. Detach first when switching between tmux servers. Inside an existing PiMux workspace, the plain `pimux` command automatically uses its server. Reloads update PiMux sessions; ordinary sessions keep their settings and key actions.
 
 An optional `~/.config/pimux/runtime.conf` can select an already-installed tmux binary and a different socket. Its three lines are the primary binary's absolute path, the primary socket name, and the system binary's absolute path. This is only needed for an existing parallel tmux installation; fresh installs need no runtime file.
 
@@ -103,7 +105,7 @@ Run the install command again to update. It preserves language/runtime preferenc
 pimux uninstall
 ```
 
-Uninstall removes only the managed launcher. Your configuration, backups, shared Starship installation and running tasks remain. Management shortcuts need the launcher, so keep it installed while you still need those shortcuts. No personal `.bashrc` or `.tmux.conf` changes need undoing.
+Uninstall removes only the managed launcher. Your configuration, backups, shared Starship installation and running tasks remain. Management shortcuts need the launcher, so keep it installed while you still need those shortcuts. The standard `~/.local/bin` command-path entry stays available for your other user-installed tools.
 
 ## Development
 

@@ -15,7 +15,7 @@
 在 Linux 服务器或终端执行：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/2-mo/pimux/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/2-mo/pimux/main/install.sh | bash && export PATH="$HOME/.local/bin:$PATH"
 ```
 
 安装器下载并校验发布包，在 Debian/Ubuntu 上通过 apt 补齐缺失的系统依赖，安装或复用 Starship，并将整套工具放入用户目录。仅当系统依赖缺失时需要管理员权限；不会安装显卡驱动。
@@ -23,12 +23,12 @@ curl -fsSL https://raw.githubusercontent.com/2-mo/pimux/main/install.sh | bash
 安装后进入：
 
 ```bash
-~/.local/bin/pimux
+pimux
 ```
 
-PiMux 内会自动将命令加入 PATH。外部 shell 如果尚未包含 `~/.local/bin`，用上面的完整路径即可，无需修改设置。
+上面的安装命令会让当前终端立即识别 `pimux`。安装器也会为之后打开的 Bash 终端、以及已有的 Zsh 配好命令路径，保留原有设置，修改启动文件前先备份。
 
-也可以从 [Releases](https://github.com/2-mo/pimux/releases/latest) 下载并解压 `pimux-linux.tar.gz`，运行 `bash pimux/setup-tmux.sh`。更新时重新运行相同安装命令，已有的受管文件发生变化时先备份。
+也可以从 [Releases](https://github.com/2-mo/pimux/releases/latest) 下载并解压 `pimux-linux.tar.gz`，运行 `bash pimux/setup-tmux.sh` 后打开新终端。更新时重新运行相同安装命令，已有的受管文件发生变化时先备份。
 
 ## 默认就有
 
@@ -37,11 +37,13 @@ PiMux 内会自动将命令加入 PATH。外部 shell 如果尚未包含 `~/.loc
 - **会话搜索**：管理列表按 `/`，按名称或目录实时筛选。方向键选择、Enter 直接进入、Backspace 删除输入、Esc 清空。搜索不区分大小写，按字面匹配。
 - **显卡概况与详情**：圆圈表示大概利用率，每四张卡一组；`Ctrl-a g` 打开实时利用率、显存和占用进程详情，`q` 返回。
 - **中英切换**：`Ctrl-a h` 打开菜单，选择 `Language / 语言`。偏好会自动保存。
-- **独立工作空间**：首次安装默认使用自己的 tmux 服务，不改写原有 `.tmux.conf` 或 `.bashrc`。PiMux 内的 Bash 会加载用户原设置，然后应用自带提示符。
+- **独立工作空间**：首次安装默认使用自己的 tmux 服务，保留原有 `.tmux.conf`；shell 启动文件只追加命令路径。PiMux 内的 Bash 会加载用户原设置，然后应用自带提示符。
 
 PiMux 在现有终端或 SSH 连接中工作，不是终端模拟器。离开连接会保留任务；关闭共享窗口或会话会影响所有连接，管理列表会要求确认。机器重启后不能恢复原进程。
 
 ## 日常使用
+
+记住 `pimux` 就能进入。进入后用 `Ctrl-a h` 打开菜单，管理、显卡详情和帮助都在里面；状态栏会一直提示这个入口。
 
 ```bash
 pimux                 # 管理列表，不自动新建会话
@@ -90,7 +92,7 @@ pimux --version
 
 支持 Linux，要求 Bash 4+、tmux 3.2+、coreutils、grep、sed、util-linux，以及 `tmux-256color` terminfo。Debian/Ubuntu 上由安装器补齐；其他 Linux 发行版通过系统包管理器安装这些依赖。暂不支持 macOS 或原生 Windows；Windows 可通过 WSL 的 Linux 环境或 SSH 使用。
 
-`pimux --system ls` 查看系统 tmux 会话，`pimux --system -n NAME` 进入已有会话。跨服务切换前先离开当前连接。普通安装不会重载系统服务中未标记为 PiMux 的会话；显式运行 `pimux --system reload` 会将主题和绑定应用到该服务。
+`pimux --system ls` 查看系统 tmux 会话，`pimux --system -n NAME` 进入已有会话。跨服务切换前先离开当前连接。已在 PiMux 工作空间内时，直接运行 `pimux` 会自动使用当前服务。重载会更新 PiMux 会话，普通会话保留原设置和按键行为。
 
 已有并行 tmux 安装可以在 `~/.config/pimux/runtime.conf` 指定主程序绝对路径、主 socket 名称、系统程序绝对路径，每项一行。首次安装不需要这个文件。
 
@@ -104,7 +106,7 @@ pimux --version
 pimux uninstall
 ```
 
-卸载只移除受管的命令入口，保留设置、备份、共用的 Starship 安装和正在运行的任务。管理快捷键依赖命令入口，仍需要这些快捷键时请保留安装。由于没有改写个人 `.bashrc` 或 `.tmux.conf`，无需手动撤销配置引用。
+卸载只移除受管的命令入口，保留设置、备份、共用的 Starship 安装和正在运行的任务。管理快捷键依赖命令入口，仍需要这些快捷键时请保留安装。标准的 `~/.local/bin` 命令路径会保留，方便其他用户级工具继续使用。
 
 ## 开发
 

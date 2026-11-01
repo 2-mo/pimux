@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1
+
+- Use `pimux` directly after installation; configure the command path for future Bash and existing Zsh terminals with backups.
+- Reuse the current PiMux server automatically when running the short command inside a workspace.
+- Refresh helper shortcuts on shared system servers while preserving ordinary sessions and their original key actions.
+- Apply reloads to managed sessions without restarting their tasks.
+
 ## 0.1.0
 
 Initial standalone release of PiMux — Personal Interactive MUltipleXer.
