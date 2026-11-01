@@ -57,6 +57,9 @@ class Document:
                 self.query += name
             self.offset = 0
             return False
+        if name == "KEY_ESCAPE" and self.query:
+            self.query, self.offset = "", 0
+            return False
         if name in {"q", "KEY_ESCAPE"}:
             return True
         if name == "/" and self.searchable:
