@@ -56,7 +56,7 @@ def test_install_exposes_short_command_and_preserves_user_settings(tmp_path):
     assert len(list(home.glob('.bashrc.pimux-backup.*'))) == 1
     assert os.access(home / '.local/bin/pimux', os.X_OK)
     config = home / '.config/pimux'
-    for file in ('tmux.conf', 'bashrc', 'shell.bash', 'starship.toml', 'gpu.bash'):
+    for file in ('tmux.conf', 'bashrc', 'shell.bash', 'starship.toml', 'gpu.bash', 'proxy.bash'):
         assert (config / file).is_file()
     theme = config / 'tmux.conf'
     theme.write_text('# pimux-managed: previous theme\n')
@@ -83,10 +83,13 @@ def test_install_refuses_unrelated_launcher_and_keeps_symlink(tmp_path):
     assert config.read_text() == '# existing dotfiles\n'
 
 
-def test_shell_initializes_starship_when_only_environment_was_inherited():
+def test_shell_initializes_starship_when_only_environment_was_inherited(tmp_path):
     if not shutil.which('starship'):
         pytest.skip('requires starship')
     env = dict(os.environ, STARSHIP_SHELL='bash')
+    env.pop('TMUX', None)
+    env.pop('TMUX_PANE', None)
+    env['PIMUX_PROXY_FILE'] = str(tmp_path / 'proxy')
     script = '''set -e
 source "$1"
 declare -F starship_precmd >/dev/null
@@ -113,6 +116,8 @@ def server(tmp_path):
     env["PIMUX_RUNTIME_FILE"] = str(tmp_path / "runtime.conf")
     Path(env["PIMUX_RUNTIME_FILE"]).write_text(f"{shutil.which('tmux')}\ndefault\n{shutil.which('tmux')}\n")
     env["PIMUX_LANGUAGE_FILE"] = str(tmp_path / "language")
+    env['PIMUX_PINS_FILE'] = str(tmp_path / 'pinned-sessions')
+    env['PIMUX_PROXY_FILE'] = str(tmp_path / 'proxy')
     Path(env["PIMUX_LANGUAGE_FILE"]).write_text("zh\n")
 
     def tmux(*args):
@@ -945,3 +950,273 @@ def test_mouse_click_passes_through_tmux_popup_to_manager(server):
             popup.wait(timeout=5)
         os.close(master)
         os.close(slave)
+
+
+def test_proxy_shell_apply_disable_restore_and_validation(tmp_path):
+    proxy_file = tmp_path / 'proxy'
+    env = {key: value for key, value in os.environ.items()
+           if key.lower() not in ('http_proxy', 'https_proxy', 'all_proxy') and key not in ('TMUX', 'TMUX_PANE')}
+    env.update(PATH=f'{SOURCE}:{env["PATH"]}', PIMUX_PROXY_FILE=str(proxy_file),
+               HTTP_PROXY='http://inherited.example:8080', no_proxy='localhost,127.0.0.1')
+    script = r'''set -e
+source "$1/ui.bash"
+source "$1/proxy.bash"
+existing_hook() { :; }
+PROMPT_COMMAND=(existing_hook)
+pimux_proxy_shell_init
+pimux_proxy_shell_init
+[[ ${#PROMPT_COMMAND[@]} == 2 ]]
+[[ $HTTP_PROXY == http://inherited.example:8080 && ! -v http_proxy ]]
+export http_proxy=http://manual.example:8080
+pimux_proxy_prompt
+[[ $http_proxy == http://manual.example:8080 ]]
+pimux proxy set 'http://user:private-password@127.0.0.1:7890'
+[[ $http_proxy == "$HTTP_PROXY" && $https_proxy == "$http_proxy" && $ALL_PROXY == "$http_proxy" ]]
+pimux proxy
+pimux proxy off
+[[ ! -v http_proxy && ! -v HTTP_PROXY && ! -v https_proxy && ! -v HTTPS_PROXY && ! -v ALL_PROXY && ! -v all_proxy ]]
+[[ $no_proxy == localhost,127.0.0.1 ]]
+pimux proxy on
+[[ $https_proxy == http://user:private-password@127.0.0.1:7890 ]]
+export http_proxy=http://manual.example:9999
+pimux_proxy_prompt
+[[ $http_proxy == http://manual.example:9999 ]]
+pimux proxy on
+[[ $http_proxy == http://user:private-password@127.0.0.1:7890 ]]
+pimux proxy reset
+[[ $HTTP_PROXY == http://inherited.example:8080 && ! -v http_proxy ]]
+# A change from another terminal is applied at this shell's next prompt.
+command pimux proxy set socks5h://127.0.0.1:7890
+[[ ! -v http_proxy ]]
+set +e
+false
+pimux_proxy_prompt
+status=$?
+set -e
+[[ $status == 1 && $all_proxy == socks5h://127.0.0.1:7890 ]]
+if pimux proxy set $'http://bad\naddress'; then exit 9; fi
+[[ $all_proxy == socks5h://127.0.0.1:7890 ]]
+# A fresh shell gets the preference without manual configuration.
+bash -c 'source "$1"; pimux_proxy_shell_init; [[ $https_proxy == socks5h://127.0.0.1:7890 ]]' test "$1/proxy.bash"
+# Settings remain editable even if an interrupted/manual edit left invalid data.
+printf 'broken\n' > "$PIMUX_PROXY_FILE"
+pimux proxy set http://127.0.0.1:8888
+[[ $https_proxy == http://127.0.0.1:8888 ]]
+'''
+    result = subprocess.run(['bash', '-c', script, 'test', str(SOURCE)],
+                            env=env, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert 'private-password' not in result.stdout + result.stderr
+    assert '***@127.0.0.1:7890' in result.stdout
+    assert proxy_file.read_text() == 'on\nhttp://127.0.0.1:8888\n'
+    assert proxy_file.stat().st_mode & 0o777 == 0o600
+
+
+def test_pins_persist_share_views_isolate_servers_and_keep_selection(tmp_path, server):
+    env, tmux = server
+    alpha = tmux('new-session', '-d', '-s', 'alpha project', '-P', '-F', '#{session_id}')
+    zeta = tmux('new-session', '-d', '-s', 'zeta', '-P', '-F', '#{session_id}')
+    view = tmux('new-session', '-d', '-t', zeta, '-s', 'zeta-view', '-P', '-F', '#{session_id}')
+    tmux('set-option', '-t', view, '@pimux_origin', zeta)
+    prefix = ['bash', '-c', 'source "$1"; configure_runtime; load_manager; "$2" "${@:3}"',
+              'test', str(SOURCE / 'pimux')]
+    processes = [subprocess.Popen([*prefix, 'toggle_session_pin', sid], env=env,
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                 for sid in (alpha, view)]
+    for process in processes:
+        _, error = process.communicate(timeout=5)
+        assert process.returncode == 0, error
+    pins = subprocess.check_output([*prefix, 'session_pin_names'], env=env, text=True)
+    assert set(pins.splitlines()) == {'alpha project', 'zeta'}
+    subprocess.run([*prefix, 'toggle_session_pin', alpha], env=env, check=True)
+    # Preferences use names, so recreating the session preserves its pin.
+    tmux('kill-session', '-t', view)
+    tmux('kill-session', '-t', zeta)
+    zeta = tmux('new-session', '-d', '-s', 'zeta', '-P', '-F', '#{session_id}')
+    other_runtime = tmp_path / 'other-runtime'
+    other_runtime.write_text(f"{shutil.which('tmux')}\nother-server\n{shutil.which('tmux')}\n")
+    other_env = dict(env, PIMUX_RUNTIME_FILE=str(other_runtime))
+    assert subprocess.check_output([*prefix, 'session_pin_names'], env=other_env, text=True) == ''
+
+    master, slave = os.openpty()
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 20, 110, 0, 0))
+    script = '''source "$1"
+configure_runtime
+load_manager
+connect_session() { printf '\\nOPEN:%s\\n' "$1"; }
+manager
+'''
+    process = subprocess.Popen(['bash', '-c', script, 'test', str(SOURCE / 'pimux')],
+                               env=env, stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
+    output = bytearray()
+
+    def wait_for(condition):
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            if condition():
+                return
+            if select.select([master], [], [], .05)[0]:
+                output.extend(os.read(master, 65536))
+        pytest.fail(output.decode(errors='replace')[-1500:])
+
+    try:
+        wait_for(lambda: b'alpha project' in output and b'zeta' in output)
+        assert output.index(b'zeta') < output.index(b'alpha project')
+        # Unpinning moves the row, but Enter must still open the same session.
+        os.write(master, b'p')
+        wait_for(lambda: subprocess.check_output([*prefix, 'session_pin_names'], env=env) == b'')
+        os.write(master, b'\r')
+        wait_for(lambda: f'OPEN:{zeta}'.encode() in output)
+        assert process.wait(timeout=5) == 0
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            process.wait(timeout=5)
+        os.close(master)
+        os.close(slave)
+
+
+def test_copy_path_targets_only_requesting_client(tmp_path, server):
+    import base64
+    env, tmux = server
+    directory = tmp_path / 'project "quoted" $literal'
+    directory.mkdir()
+    tmux('source-file', str(SOURCE / 'pimux.conf'))
+    tmux('set-option', '-g', '@pimux_launcher', str(SOURCE / 'pimux'))
+    tmux('set-environment', '-g', 'PIMUX_RUNTIME_FILE', env['PIMUX_RUNTIME_FILE'])
+    tmux('set-environment', '-g', 'PIMUX_PINS_FILE', env['PIMUX_PINS_FILE'])
+    tmux('new-window', '-t', 'seed', '-c', str(directory))
+    tmux('new-session', '-d', '-s', 'peer', '-c', str(tmp_path))
+    panes = tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid}')
+    clients = []
+    outputs = [bytearray(), bytearray()]
+    try:
+        for session in ('seed', 'peer'):
+            master, slave = os.openpty()
+            fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 30, 140, 0, 0))
+            process = subprocess.Popen(['tmux', 'attach-session', '-t', session], env=env,
+                                       stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
+            clients.append((process, master, slave))
+
+        def drain():
+            readable = select.select([item[1] for item in clients], [], [], .05)[0]
+            for index, (_, master, _) in enumerate(clients):
+                if master in readable:
+                    outputs[index].extend(os.read(master, 65536))
+
+        deadline = time.monotonic() + 8
+        while len(tmux('list-clients', '-F', '#{client_name}').splitlines()) != 2 and time.monotonic() < deadline:
+            drain()
+        os.write(clients[0][1], b'\x01y')
+        encoded = base64.b64encode(str(directory).encode())
+        while encoded not in outputs[0] and time.monotonic() < deadline:
+            drain()
+        assert encoded in outputs[0] and b']52;' in outputs[0]
+        drain()
+        assert encoded not in outputs[1]
+        assert tmux('show-buffer') == str(directory)
+        assert tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid}') == panes
+    finally:
+        for process, master, slave in clients:
+            if process.poll() is None:
+                process.terminate()
+                process.wait(timeout=5)
+            os.close(master)
+            os.close(slave)
+
+
+def test_proxy_panel_sets_disables_and_restores_preferences(tmp_path):
+    file = tmp_path / 'proxy'
+    env = dict(os.environ, PIMUX_PROXY_FILE=str(file), TERM='xterm-256color')
+    master, slave = os.openpty()
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 26, 120, 0, 0))
+    process = subprocess.Popen([str(SOURCE / 'pimux'), '__proxy'], env=env,
+                               stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
+    output = bytearray()
+
+    def wait_for(condition):
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            if condition():
+                return
+            if select.select([master], [], [], .05)[0]:
+                output.extend(os.read(master, 65536))
+        pytest.fail(output.decode(errors='replace')[-1500:])
+
+    try:
+        wait_for(lambda: b'e set address' in output)
+        os.write(master, b'e')
+        wait_for(lambda: b'Proxy URL' in output)
+        os.write(master, b'\x15http://127.0.0.1:8088\r')
+        wait_for(lambda: file.exists() and file.read_text() == 'on\nhttp://127.0.0.1:8088\n')
+        os.write(master, b'd')
+        wait_for(lambda: file.read_text() == 'off\nhttp://127.0.0.1:8088\n')
+        os.write(master, b'o')
+        wait_for(lambda: file.read_text() == 'on\nhttp://127.0.0.1:8088\n')
+        os.write(master, b'i')
+        wait_for(lambda: file.read_text() == 'inherit\nhttp://127.0.0.1:8088\n')
+        os.write(master, b'q')
+        assert process.wait(timeout=5) == 0
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            process.wait(timeout=5)
+        os.close(master)
+        os.close(slave)
+
+
+def test_installed_shell_applies_proxy_without_extra_setup(tmp_path):
+    result = install(tmp_path)
+    assert result.returncode == 0, result.stderr
+    env = dict(os.environ, HOME=str(tmp_path), PIMUX_PROXY_FILE=str(tmp_path / '.config/pimux/proxy'))
+    env.pop('TMUX', None)
+    env.pop('TMUX_PANE', None)
+    launcher = tmp_path / '.local/bin/pimux'
+    subprocess.run([str(launcher), 'proxy', 'set', 'http://127.0.0.1:8089'], env=env,
+                   check=True, capture_output=True)
+    script = '''set -e
+[[ $(type -t pimux) == function ]]
+[[ $http_proxy == http://127.0.0.1:8089 && $https_proxy == "$http_proxy" ]]
+pimux proxy off
+[[ ! -v http_proxy && ! -v HTTP_PROXY ]]
+pimux proxy on
+[[ $http_proxy == http://127.0.0.1:8089 ]]
+'''
+    result = subprocess.run(['bash', '--rcfile', str(tmp_path / '.config/pimux/shell.bash'),
+                             '-ic', script], env=env, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+
+
+def test_proxy_indicator_tracks_the_pane_and_manual_exports(server):
+    env, tmux = server
+    tmux('source-file', str(SOURCE / 'pimux.conf'))
+    pane = tmux('display-message', '-p', '-t', 'seed', '#{pane_id}')
+    other = tmux('split-window', '-d', '-t', pane, '-P', '-F', '#{pane_id}')
+    shell_env = {key: value for key, value in env.items()
+                 if key.lower() not in ('http_proxy', 'https_proxy', 'all_proxy')}
+    shell_env.update(TMUX=tmux('display-message', '-p', '#{socket_path},#{pid},0'), TMUX_PANE=pane)
+    script = '''set -e
+source "$1/proxy.bash"
+pimux_proxy_shell_init
+[[ $(command tmux show-options -pqv -t "$TMUX_PANE" @pimux_proxy_status) == off ]]
+export https_proxy=http://127.0.0.1:7890
+pimux_proxy_prompt
+[[ $(command tmux show-options -pqv -t "$TMUX_PANE" @pimux_proxy_status) == on ]]
+unset https_proxy
+pimux_proxy_prompt
+[[ $(command tmux show-options -pqv -t "$TMUX_PANE" @pimux_proxy_status) == off ]]
+'''
+    result = subprocess.run(['bash', '-c', script, 'test', str(SOURCE)], env=shell_env,
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert tmux('show-options', '-pqv', '-t', other, '@pimux_proxy_status') == ''
+    # Exclude the asynchronous GPU command so its loading text cannot mask spacing.
+    right = tmux('show-options', '-gqv', 'status-right').split('#(', 1)[0]
+    unknown_render = tmux('display-message', '-p', '-t', other, right)
+    tmux('set-option', '-p', '-t', other, '@pimux_proxy_status', 'on')
+    off_render = tmux('display-message', '-p', '-t', pane, right)
+    on_render = tmux('display-message', '-p', '-t', other, right)
+    assert off_render != on_render
+    assert '⛓︎' in on_render
+    assert off_render == unknown_render == ''
+    assert '#{?' not in on_render

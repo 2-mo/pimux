@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0
+
+- Copy the current directory from the action menu or Ctrl-a y, targeting the requesting terminal's clipboard and tmux buffer.
+- Pin/unpin sessions from the menu or with p in the manager. Pins persist by server and session name, and sorting keeps the selected item stable.
+- Show a compact connection icon before the GPU circles only when the active pane's shell reports a configured proxy; otherwise hide it without reserving space.
+- View and configure proxies through the action menu or `pimux proxy`; enable, disable or restore inherited settings without rewriting system configuration.
+- Integrate proxy preferences into PiMux Bash shells, preserving existing prompt hooks, manual exports, bypass lists and running programs.
+- Mask proxy credentials in status output and save proxy preferences with owner-only permissions.
+
 ## 0.2.1
 
 - Prefill new session names from the current directory; accept with Enter, edit, or clear to cancel.

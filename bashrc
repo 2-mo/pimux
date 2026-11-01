@@ -16,3 +16,6 @@ if command -v starship >/dev/null 2>&1; then
         eval "$(starship init bash)"
     fi
 fi
+
+source "$(dirname -- "${BASH_SOURCE[0]}")/proxy.bash"
+pimux_proxy_shell_init
