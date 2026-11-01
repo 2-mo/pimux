@@ -63,10 +63,30 @@ install_files() (
     flock 9
     install_asset "$source_dir/pimux" "$target_home/.local/bin/pimux" 755
     install_asset "$source_dir/pimux.conf" "$config_dir/tmux.conf" 644
-    for file in ui.bash manager.bash gpu.bash proxy.bash shell.bash bashrc starship.toml uninstall.sh; do
+    for file in ui.bash manager.bash gpu.bash gpu.py gpu_ui.py proxy.bash shell.bash bashrc starship.toml uninstall.sh; do
         install_asset "$source_dir/$file" "$config_dir/$file" 644
     done
     install_command_path "$target_home"
+)
+
+install_gpu_runtime() (
+    local target_home=$1 source_dir=$2 runtime uv installer
+    runtime="$target_home/.local/share/pimux"
+    if command -v uv >/dev/null 2>&1; then
+        uv=$(command -v uv)
+    elif [[ -x $runtime/uv/uv ]]; then
+        uv="$runtime/uv/uv"
+    else
+        installer=$(mktemp)
+        trap 'rm -f -- "$installer"' EXIT
+        curl --fail --show-error --silent --location --proto '=https' --tlsv1.2 \
+            https://astral.sh/uv/install.sh -o "$installer"
+        UV_UNMANAGED_INSTALL="$runtime/uv" sh "$installer"
+        uv="$runtime/uv/uv"
+    fi
+    # Keep Python packages separate from the user's active project environment.
+    env -u VIRTUAL_ENV UV_PROJECT_ENVIRONMENT="$runtime/venv" \
+        "$uv" sync --project "$source_dir" --locked --no-dev
 )
 
 install_starship() (
@@ -127,6 +147,7 @@ main() {
             printf 'tmux >= 3.2 is required; found %s.\n' "$version" >&2; return 1;
         }
     install_starship
+    install_gpu_runtime "$HOME" "$PIMUX_SOURCE_DIR"
     install_files "$HOME" "$PIMUX_SOURCE_DIR"
     "$HOME/.local/bin/pimux" reload
     printf '\nPiMux %s is ready. Open your terminal workspace:\n  pimux\n' "$PIMUX_VERSION"

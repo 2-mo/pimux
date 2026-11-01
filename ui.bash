@@ -1,5 +1,6 @@
 # pimux-managed: English / Simplified Chinese UI and language preference.
 declare -A PIMUX_EN=(
+    ['显卡界面的运行环境未就绪，请运行 pimux update 完成安装。']='The GPU dashboard environment is missing. Run pimux update to complete installation.'
     ['工作终端']='Work terminal'
     ['会话管理']='Session manager'
     ['窗口']=windows
