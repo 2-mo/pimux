@@ -1,0 +1,487 @@
+#!/usr/bin/env bash
+# piux-managed: standalone tmux launcher; no RIPO runtime dependency.
+set -euo pipefail
+PIUX_COMMAND=()
+PIUX_TARGET_SOCKET=''
+PIUX_LAUNCHER=$(readlink -f -- "${BASH_SOURCE[0]}")
+PIUX_UI_DIR=$(dirname -- "$PIUX_LAUNCHER")
+[[ -f $PIUX_UI_DIR/ui.bash ]] || PIUX_UI_DIR="$HOME/.config/piux"
+source "$PIUX_UI_DIR/ui.bash"
+
+tmux() {
+    if (( ${#PIUX_COMMAND[@]} )); then
+        command "${PIUX_COMMAND[@]}" "$@"
+    else
+        command tmux "$@"
+    fi
+}
+
+configure_runtime() {
+    local system=${1:-false} file=${PIUX_RUNTIME_FILE:-$HOME/.config/piux/runtime.conf}
+    local binary socket
+    local -a runtime=()
+    PIUX_COMMAND=()
+    PIUX_TARGET_SOCKET=''
+    if [[ -f $file ]]; then
+        mapfile -t runtime < "$file"
+        if (( ${#runtime[@]} != 3 )); then
+            printf_ui '运行配置应为三行：新版程序路径、socket 名称、系统程序路径：%s\n' "$file" >&2
+            return 1
+        fi
+        if [[ $system == true ]]; then
+            binary=${runtime[2]}
+            socket=default
+        else
+            binary=${runtime[0]}
+            socket=${runtime[1]}
+        fi
+        if [[ $binary != /* || ! -x $binary || ! $socket =~ ^[a-zA-Z0-9_][a-zA-Z0-9_.-]*$ ]]; then
+            printf_ui '运行配置中的程序路径或 socket 名称无效：%s\n' "$file" >&2
+            return 1
+        fi
+        PIUX_COMMAND=("$binary" -L "$socket")
+        PIUX_TARGET_SOCKET=$(readlink -m "${TMUX_TMPDIR:-/tmp}/tmux-$UID/$socket")
+        # New shells and run-shell helpers must use the matching tmux client.
+        export PATH="$(dirname -- "$binary"):$PATH"
+    fi
+}
+
+usage() {
+    if [[ $PIUX_LANGUAGE == en ]]; then
+        cat <<'EOF'
+piux · Personal terminal
+
+  piux                 Open the manager; never create a session implicitly
+  piux -n NAME         Create or enter a session, with independent window selection
+  piux ls [query]      List sessions and windows; filter names or directories
+  piux -h              Print this help
+
+Maintenance:
+  piux doctor          Check version, theme, color and clipboard capabilities
+  piux reload          Reload configuration without restarting tasks
+  piux --system        Use sessions on the system tmux server
+  piux doctor --clipboard
+                       Send test text to the local clipboard; paste to verify
+
+Press Ctrl-a and release it before an action key.
+Ctrl-a h: menu. Ctrl-a /: keyboard help. Ctrl-a d: detach and keep tasks running.
+The menu includes management, full path, help and Language / 语言 (l).
+Manager: arrows select/expand, Enter open, n new, x close (confirm), q back.
+EOF
+        return
+    fi
+    cat <<'EOF'
+piux · 个人工作终端
+
+  piux                 打开管理列表；没有会话时显示新建提示
+  piux -n NAME         创建或进入命名会话，每个终端独立切换窗口
+  piux ls [关键词]     查看会话和窗口，可按名称或目录筛选
+  piux -h              打印此帮助
+
+维护命令：
+  piux doctor          检查版本、配置、颜色和剪贴板能力
+  piux reload          重载当前选用的 tmux 配置
+  piux --system        升级并行运行时，进入系统旧版的会话
+  piux doctor --clipboard
+                        发送测试文字到本地剪贴板，请手动粘贴验证
+
+新会话从当前目录开始，已有会话恢复原位置；进入后自行运行命令。
+Ctrl-a 是前缀：先按下并松开，再按操作键。
+Ctrl-a h 打开菜单，Ctrl-a / 查看实际绑定，Ctrl-a d 离开并保留任务。
+菜单包含管理列表、完整路径、快捷键帮助，以及 Language / 语言（l）。
+管理列表：方向键选择/展开，Enter 进入，n 新建，x 关闭（需确认），q 返回。
+EOF
+}
+
+require_tmux() {
+    type -P tmux >/dev/null || { printf_ui '请先安装 tmux（Ubuntu：sudo apt install tmux）。\n' >&2; return 1; }
+}
+
+require_terminal() {
+    [[ -t 0 && -t 1 ]] || { printf_ui '请在交互终端中运行；只读查看请用 piux ls。\n' >&2; return 1; }
+    if [[ -n ${TMUX:-} && -n $PIUX_TARGET_SOCKET ]] && \
+       [[ $(readlink -m "${TMUX%%,*}") != "$PIUX_TARGET_SOCKET" ]]; then
+        printf_ui '当前位于另一个 tmux server。请先按 Ctrl-a d 离开，再运行此命令；旧会话用 piux --system。\n' >&2
+        return 1
+    fi
+}
+
+reload_config() {
+    if tmux list-sessions >/dev/null 2>&1; then
+        tmux source-file "$HOME/.tmux.conf"
+        refresh_language
+        printf_ui '已重载配置；会话和任务继续运行。前缀为 Ctrl-a。\n'
+    else
+        printf_ui '配置会在此 tmux server 下次启动时加载。\n'
+    fi
+    refresh_session_themes
+}
+
+refresh_session_themes() (
+    local sid launcher
+    update_server_theme() {
+        # Update local overrides, including views attached to the older server.
+        while IFS=$'\t' read -r sid launcher; do
+            [[ -n $sid && -n $launcher ]] || continue
+            apply_session_theme "$sid"
+        done < <(tmux list-sessions -F $'#{session_id}\t#{@piux_launcher}' 2>/dev/null || true)
+    }
+    update_server_theme
+    if [[ -f ${PIUX_RUNTIME_FILE:-$HOME/.config/piux/runtime.conf} ]]; then
+        configure_runtime; update_server_theme
+        configure_runtime true; update_server_theme
+    fi
+)
+
+gpu_status() {
+    local rows index utilization memory circle color output='' count=0
+    command -v nvidia-smi >/dev/null 2>&1 || { printf '\n'; return; }
+    # tmux runs status jobs asynchronously; bound driver stalls as well.
+    if ! rows=$(timeout -k 1 2 nvidia-smi \
+        --query-gpu=index,utilization.gpu,memory.used --format=csv,noheader,nounits 2>/dev/null); then
+        printf '#[fg=#e5a35b] ? #[default]\n'
+        return
+    fi
+    while IFS=, read -r index utilization memory; do
+        index=${index//[[:space:]]/}
+        utilization=${utilization//[[:space:]]/}
+        memory=${memory//[[:space:]]/}
+        [[ $index =~ ^[0-9]+$ ]] || continue
+        circle='?'; color='#e5a35b'
+        if [[ $utilization =~ ^[0-9]+$ && $memory =~ ^[0-9]+$ ]] && (( utilization <= 100 )); then
+            if (( utilization < 10 )); then circle='○'
+            elif (( utilization < 35 )); then circle='◔'
+            elif (( utilization < 65 )); then circle='◑'
+            elif (( utilization < 90 )); then circle='◕'
+            else circle='●'
+            fi
+            if (( utilization >= 10 )); then color='#63c5f8'
+            elif (( memory < 256 )); then color='#9ca3af'
+            fi
+        fi
+        if (( count > 0 && count % 4 == 0 )); then output+=' '; fi
+        output+=" #[fg=$color,bold]$circle"
+        count=$((count + 1))
+    done <<< "$rows"
+    if [[ -n $output ]]; then
+        printf '%s #[default]\n' "$output"
+    else
+        printf '\n'
+    fi
+}
+
+validate_session_name() {
+    local name=$1
+    # Reject tmux target separators and format syntax; spaces and Unicode are fine.
+    if [[ -z $name || $name == -* || $name == *[.:\$\{\}\#]* || $name =~ [[:cntrl:]] ]]; then
+        printf_ui '会话名不能为空，也不能以 - 开头或包含 . : $ { } # 或控制字符。\n' >&2
+        return 2
+    fi
+}
+
+# Use stable session IDs for links; names remain the user's public interface.
+logical_session() {
+    local target=$1 origin name
+    origin=$(tmux show-options -qv -t "$target" @piux_origin)
+    name=$(tmux show-options -qv -t "$target" @piux_view)
+    if [[ -n $origin ]] && tmux has-session -t "$origin" 2>/dev/null; then
+        printf '%s\n' "$origin"
+    elif [[ -n $name ]] && tmux has-session -t "=$name" 2>/dev/null; then
+        tmux display-message -p -t "=$name:" '#{session_id}'
+    else
+        printf '%s\n' "$target"
+    fi
+}
+
+session_ids() {
+    tmux list-sessions -F '#{session_id}' 2>/dev/null || true
+}
+
+logical_sessions() {
+    local sid root
+    while read -r sid; do
+        [[ -n $sid ]] || continue
+        root=$(logical_session "$sid")
+        [[ $root != "$sid" ]] || printf '%s\n' "$sid"
+    done < <(session_ids)
+}
+
+client_session() {
+    local client=$1 name sid
+    while IFS=$'\t' read -r name sid; do
+        if [[ $name == "$client" ]]; then printf '%s\n' "$sid"; return; fi
+    done < <(tmux list-clients -F $'#{client_name}\t#{session_id}')
+    return 1
+}
+
+current_client() {
+    local name pane
+    local -a matches=()
+    while IFS=$'\t' read -r name pane; do
+        [[ $pane != "${TMUX_PANE:-}" ]] || matches+=("$name")
+    done < <(tmux list-clients -F $'#{client_name}\t#{pane_id}')
+    if (( ${#matches[@]} != 1 )); then
+        printf_ui '当前窗口有多个连接，请用 Ctrl-a h → 管理，明确操作当前终端。\n' >&2
+        return 1
+    fi
+    printf '%s\n' "${matches[0]}"
+}
+
+cleanup_view() {
+    local view=$1
+    tmux if-shell -F -t "$view:" \
+        '#{&&:#{==:#{session_attached},0},#{>:#{session_group_size},1}}' \
+        "kill-session -t '$view'" 2>/dev/null || true
+}
+
+apply_session_theme() {
+    local target=$1 file line row
+    file="$(dirname -- "$PIUX_LAUNCHER")/piux.conf"
+    [[ -f $file ]] || file="$HOME/.config/piux/tmux.conf"
+    # Local arrays shadow inherited arrays, so preserve the window-list row.
+    row=$(tmux show-options -Aqv -t "$target" 'status-format[0]')
+    tmux set-option -t "$target" 'status-format[0]' "$row"
+    while IFS= read -r line; do
+        case $line in
+            'set -g status'*|'set -g @piux_hint_'*)
+                printf "set -t '%s' %s\n" "$target" "${line#set -g }" ;;
+        esac
+    done < "$file" | tmux source-file -
+    tmux set-option -t "$target" @piux_launcher "$PIUX_LAUNCHER"
+    tmux set-option -t "$target" @piux_language "$PIUX_LANGUAGE"
+}
+
+create_view() {
+    local root=$1 previous=${2:-} name view row
+    name=$(tmux display-message -p -t "$root:" '#{session_name}')
+    view=$(tmux new-session -d -t "$root" -s "$name~view-$BASHPID" -P -F '#{session_id}')
+    tmux set-option -t "$view" @piux_view "$name"
+    tmux set-option -t "$view" @piux_origin "$root"
+    tmux set-option -t "$view" @piux_previous "$previous"
+    # Closing a logical session returns its clients to their outer terminals.
+    tmux set-option -t "$view" detach-on-destroy on
+    tmux set-option -t "$view" destroy-unattached off
+    row=$(tmux show-options -Aqv -t "$root" 'status-format[0]')
+    tmux set-option -t "$view" 'status-format[0]' "$row"
+    apply_session_theme "$view"
+    tmux set-hook -t "$view" 'client-detached[100]' \
+        "if-shell -F -t '$view:' '#{&&:#{==:#{session_attached},0},#{>:#{session_group_size},1}}' \"kill-session -t '$view'\""
+    printf '%s\n' "$view"
+}
+
+connect_session() (
+    local root=$1 window=${2:-} client=${3:-} view old='' previous='' old_view=''
+    root=$(logical_session "$root")
+    if [[ -n $client ]]; then
+        old=$(client_session "$client")
+        previous=$(logical_session "$old")
+        old_view=$(tmux show-options -qv -t "$old" @piux_view)
+        if [[ $previous == "$root" && -n $old_view ]]; then
+            [[ -z $window ]] || tmux select-window -t "$old:$window"
+            return
+        fi
+    fi
+    [[ -n $window ]] || window=$(tmux display-message -p -t "$root:" '#{window_id}')
+    view=$(create_view "$root" "$previous")
+    trap 'cleanup_view "$view"' EXIT
+    tmux select-window -t "$view:$window"
+    if [[ -n $client ]]; then
+        tmux switch-client -c "$client" -t "$view"
+        if [[ -n $old_view ]]; then cleanup_view "$old"; fi
+    else
+        tmux attach-session -t "$view"
+    fi
+)
+
+ensure_session() {
+    local name=$1 failure
+    validate_session_name "$name" || return
+    if ! tmux has-session -t "=$name" 2>/dev/null; then
+        if ! failure=$(tmux new-session -d -s "$name" -n shell -c "$PWD" 2>&1); then
+            tmux has-session -t "=$name" 2>/dev/null || { printf '%s\n' "$failure" >&2; return 1; }
+        fi
+    fi
+    tmux display-message -p -t "=$name:" '#{session_id}'
+}
+
+enter_session() {
+    local name=$1 client=${2:-} root
+    require_terminal
+    if [[ -n ${TMUX:-} && -z $client ]]; then client=$(current_client); fi
+    root=$(ensure_session "$name")
+    connect_session "$root" '' "$client"
+}
+
+# A manager action closes the logical group, never just a hidden view reference.
+close_session() {
+    local root=$1 sid candidate
+    local -a command=()
+    while read -r sid; do
+        [[ -n $sid && $sid != "$root" ]] || continue
+        candidate=$(logical_session "$sid")
+        if [[ $candidate == "$root" ]]; then
+            command+=(kill-session -t "$sid" ';')
+        fi
+    done < <(session_ids)
+    command+=(kill-session -t "$root")
+    tmux "${command[@]}"
+}
+
+shell_quote() {
+    local value=${1//\'/\'\\\'\'}
+    printf "'%s'" "$value"
+}
+
+configure_socket() {
+    local socket=$1 binary
+    configure_runtime
+    binary=${PIUX_COMMAND[0]:-$(type -P tmux)}
+    if [[ -n $PIUX_TARGET_SOCKET && $socket != "$PIUX_TARGET_SOCKET" ]]; then
+        configure_runtime true
+        binary=${PIUX_COMMAND[0]:-$(type -P tmux)}
+    fi
+    PIUX_COMMAND=("$binary" -S "$socket")
+    PIUX_TARGET_SOCKET=$socket
+}
+
+open_manager() {
+    local client=${1:-} expanded=${2:-} socket command cwd sid
+    require_terminal
+    if [[ -n ${TMUX:-} && -z $client ]]; then client=$(current_client); fi
+    if [[ -z $client ]]; then
+        manager '' "$expanded"
+    else
+        sid=$(client_session "$client")
+        cwd=$(tmux display-message -p -t "$sid:" '#{pane_current_path}')
+        socket=$(tmux display-message -p '#{socket_path}')
+        command="$(shell_quote "$PIUX_LAUNCHER") __manager $(shell_quote "$socket") $(shell_quote "$client") $(shell_quote "$expanded")"
+        tmux display-popup -E -c "$client" -d "$cwd" -w 90% -h 85% "$command"
+    fi
+}
+
+list_sessions() {
+    local query=${1:-} sid windows=''
+    while read -r sid; do
+        [[ -n $sid ]] || continue
+        windows+=$(tmux list-windows -t "$sid" -F '#{session_name}  #{window_index}:#{window_name}  [#{window_panes} panes]  #{pane_current_path}')$'\n'
+    done < <(logical_sessions)
+    if [[ -z $windows ]]; then
+        printf_ui '暂无会话。运行 piux -n NAME 创建，或在 piux 管理列表中按 n。\n'
+    elif [[ -n $query ]]; then
+        printf '%s' "$windows" | grep -Fi -- "$query" || printf_ui '没有匹配的窗口。\n'
+    else
+        printf '%s' "$windows"
+    fi
+}
+
+doctor() {
+    local clipboard=${1:-} version active
+    [[ -z $clipboard || $clipboard == --clipboard ]] || { usage >&2; return 2; }
+    version=$(tmux -V)
+    printf_ui 'tmux：%s\n' "$version"
+    if [[ -n $PIUX_TARGET_SOCKET ]]; then
+        printf_ui '程序：%s\nsocket：%s\n' "${PIUX_COMMAND[0]}" "$PIUX_TARGET_SOCKET"
+    fi
+    if [[ $version =~ ([0-9]+)\.([0-9]+) ]] && \
+       (( BASH_REMATCH[1] > 3 || (BASH_REMATCH[1] == 3 && BASH_REMATCH[2] >= 2) )); then
+        printf_ui '版本：满足 piux 配置要求（>= 3.2）\n'
+    else
+        printf_ui '版本：配置要求 tmux >= 3.2\n'
+        return 1
+    fi
+    if command -v infocmp >/dev/null && infocmp tmux-256color >/dev/null 2>&1; then
+        printf_ui 'terminfo：tmux-256color 可用\n'
+    else
+        printf_ui 'terminfo：缺少 tmux-256color，请安装 ncurses-term\n'
+        return 1
+    fi
+    printf_ui '当前 TERM：%s（tmux 内的 TERM 不代表外层 VS Code）\n' "${TERM:-$(tr_ui 未设置)}"
+    if tmux list-sessions >/dev/null 2>&1; then
+        tmux display-message -p "$(tr_ui '运行中的 server：#{version}（PID #{pid}）')"
+        active=$(tmux show-options -gqv @piux_theme)
+        printf_ui '运行配置：%s\n' "${active:-$(tr_ui '尚未加载 piux')}"
+        tmux list-clients -F "$(tr_ui '客户端：#{client_name}  TERM=#{client_termname}  能力=#{client_termfeatures}')"
+        tmux show-options -s set-clipboard
+    else
+        printf_ui '运行配置：尚未启动 tmux，会在新会话启动时读取。\n'
+    fi
+    printf_ui '本地剪贴板需实际验证；配置能力不等于复制成功。\n'
+    if [[ $clipboard == --clipboard ]]; then
+        require_terminal
+        if [[ -n ${TMUX:-} ]]; then
+            tmux set-buffer -w 'piux clipboard test'
+        else
+            printf '\033]52;c;cGl1eCBjbGlwYm9hcmQgdGVzdA==\a'
+        fi
+        printf_ui '已发送测试文字，请在本地编辑器粘贴并检查：piux clipboard test\n'
+    fi
+}
+
+load_manager() {
+    local file
+    file="$(dirname -- "$PIUX_LAUNCHER")/manager.bash"
+    [[ -f $file ]] || file="$HOME/.config/piux/manager.bash"
+    source "$file"
+}
+
+main() {
+    local system=false client action sid root
+    if [[ ${1:-} == __gpu-status ]]; then
+        [[ $# == 1 ]] || return 2
+        gpu_status
+        return
+    fi
+    # tmux bindings pass their exact client and socket; no default-server guessing.
+    if [[ ${1:-} == __client || ${1:-} == __manager ]]; then
+        [[ $# == 4 ]] || return 2
+        configure_socket "$2"
+        client=$3; action=$4
+        if [[ $1 == __manager ]]; then
+            load_manager
+            manager "$client" "$action"
+        else
+            case $action in
+                menu) show_menu "$client" ;;
+                language) show_language_menu "$client" ;;
+                lang-en|lang-zh) save_language "${action#lang-}"; load_language; show_menu "$client" ;;
+                help) shortcut_help ;;
+                path)
+                    sid=$(client_session "$client")
+                    tmux display-message -p -t "$sid:" '#{pane_current_path}' ;;
+                previous)
+                    sid=$(client_session "$client")
+                    root=$(tmux show-options -qv -t "$sid" @piux_previous)
+                    [[ -z $root ]] || connect_session "$root" '' "$client" ;;
+                manager|windows)
+                    load_manager
+                    # A binding has no terminal descriptors; the popup provides them.
+                    require_terminal() { :; }
+                    open_manager "$client" "$action" ;;
+                *) return 2 ;;
+            esac
+        fi
+        return
+    fi
+    if [[ ${1:-} == --system ]]; then
+        system=true
+        shift
+    fi
+    case ${1:-} in
+        -h|--help) [[ $# == 1 ]] || return 2; usage; return ;;
+        ''|ls|doctor|reload|-n) ;;
+        *) printf_ui '未知命令：%s；会话请用 piux -n NAME，帮助请用 piux -h。\n' "$1" >&2; return 2 ;;
+    esac
+    configure_runtime "$system"
+    require_tmux
+    case ${1:-} in
+        '') load_manager; open_manager ;;
+        -n) [[ $# == 2 ]] || { usage >&2; return 2; }; enter_session "$2" ;;
+        ls) [[ $# -le 2 ]] || { usage >&2; return 2; }; list_sessions "${2:-}" ;;
+        doctor) [[ $# -le 2 ]] || { usage >&2; return 2; }; doctor "${2:-}" ;;
+        reload) [[ $# == 1 ]] || { usage >&2; return 2; }; reload_config ;;
+    esac
+}
+
+if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
+    main "$@"
+fi

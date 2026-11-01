@@ -1,0 +1,43 @@
+# piux-managed: portable copy of the personal Starship prompt.
+# Context stays on the first line; command input starts on the second line.
+format = "$directory$git_branch$python$time$cmd_duration\n$character"
+add_newline = false
+
+[directory]
+format = "[$path]($style) "
+style = "cyan"
+truncation_length = 0
+truncate_to_repo = false
+
+[git_branch]
+# Keep the branch name; the dirty/ahead-behind indicators are disabled below.
+format = "on [$symbol$branch]($style) "
+
+[git_status]
+disabled = true
+
+[python]
+# Keep the uv/virtualenv name, but omit the Python version.
+format = '[\($virtualenv\)]($style) '
+style = "yellow bold"
+detect_extensions = []
+detect_files = []
+detect_folders = []
+
+[cmd_duration]
+# Only show commands that take at least two seconds.
+min_time = 2000
+format = "took [$duration]($style) "
+style = "yellow bold"
+show_milliseconds = false
+
+[time]
+# Show the current local date and time on every prompt.
+disabled = false
+time_format = "%m-%d %H:%M:%S"
+format = "at [$time]($style) "
+style = "dimmed white"
+
+[character]
+success_symbol = "[❯](bold green)"
+error_symbol = "[❯](bold red)"
