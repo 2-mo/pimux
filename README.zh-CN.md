@@ -53,7 +53,8 @@ pimux -n work         # 创建或进入命名会话
 pimux ls              # 列出会话、窗口和目录
 pimux ls project      # 筛选列表
 pimux gpu             # 显卡详情
-pimux proxy           # 代理设置及当前 shell 实际传入的代理环境
+pimux ports           # 端口、占用进程和工作目录；也可加端口号
+pimux proxy           # 打开代理设置面板
 pimux doctor          # 版本、颜色、剪贴板诊断
 pimux reload          # 热重载，不重启任务
 pimux update          # 更新到最新版，保留运行中的任务
@@ -81,21 +82,30 @@ pimux --version
 
 管理列表中按 `n` 新建，默认填入当前目录名；Enter 接受，也可修改或清空取消。`x` 关闭选中项（需确认），`q` 返回。显卡弹窗每秒刷新；点击卡片或按方向键选卡，滚轮切换行，Page Up/Down 翻页。`d` 展开显存容量、温度、功耗和计算进程。详情保留完整进程路径，并在当前 Linux 用户权限允许时显示启动命令与工作目录；长内容自动换行，滚轮或 Page Up/Down 滚动查看全部详情，方向键仍用于选卡。`r` 立即刷新，`q` / Esc 返回。管理列表和显卡详情只在当前客户端弹出，不占用其他终端的应用 pane。
 
+## 端口与窗口预览
+
+`Ctrl-a h → 端口查看` 或 `pimux ports` 显示本机 TCP 监听地址、占用进程、启动命令和工作目录。按 `/` 输入端口、进程名或目录筛选；Enter 结束输入，Esc 清空搜索。也可用 `pimux ports 8888` 精确查看一个端口。读取范围由系统权限决定；这里只显示服务器监听情况，不代表服务健康或本机转发地址。
+
+管理列表中选中窗口后按 `d`，可查看各 pane 的空闲／进程存活状态、工作目录和最近 60 行输出；选中会话时预览其当前窗口。已退出 pane 若被 tmux 保留，会显示退出码。预览每 3 秒刷新，滚轮或方向键滚动，`q` / Esc 回到管理列表，保留原选中项。查看不会切换其他客户端的窗口或向程序发送按键。
+
 ## 网络代理
 
 只有当前分屏的 shell 上报已配置代理时，显卡圆圈前才显示青色 `⛓︎`。未配置或尚未上报的旧 shell 都隐藏图标，不留空位。它反映环境配置，不表示网络连通性检测结果。
 
-通过 `Ctrl-a h → 网络代理` 设置地址、启用/停用，或恢复继承 shell 的启动环境。停用时会记住地址，方便下次开启。默认继承已有环境。
+运行 `pimux proxy`，或打开 `Ctrl-a h → 网络代理`。面板分别显示 PiMux 设置、当前终端报告的代理状态和保存的地址。方向键选择、Enter 确认，也可直接点击操作；停用会保留地址，使用启动环境会恢复每个 shell 原来的设置。
+
+按 `e` 在原界面编辑地址，支持直接输入 `127.0.0.1:7890`。Enter 保存并启用，Esc 取消，Ctrl-u 清空；无效地址会就地提示。认证信息在显示和编辑时均遮蔽。尚未报告的终端显示为“尚未报告”，不会把保存设置当作已生效。
 
 ```bash
-pimux proxy                            # 查看设置和当前终端传入的环境
+pimux proxy                            # 打开设置面板
+pimux proxy show                       # 输出设置及当前终端传入的环境
 pimux proxy set http://127.0.0.1:7890    # 换成自己的代理地址，同时启用
 pimux proxy off                        # 停用
 pimux proxy on                         # 重新启用保存的地址
 pimux proxy reset                      # 恢复 shell 的启动环境
 ```
 
-在已集成的 PiMux Bash 中，这些命令会立即对后续命令生效。通过菜单或其他终端修改后，会在下次提示符应用；已停在 shell 提示符时按一次 Enter 即可。新窗口自动应用设置。**本次升级前就已打开的旧窗口，需要用 `Ctrl-a c` 新开一个窗口来使用这项集成。** 已运行的程序保持原环境。
+在已集成的 PiMux Bash 中，这些命令会立即对后续命令生效。通过菜单或其他终端修改后，会在下次提示符应用；已停在 shell 提示符时按一次 Enter 即可。新窗口自动应用设置。**0.3.0 之前打开、尚未集成代理功能的旧窗口，需要用 `Ctrl-a c` 新开窗口。** 已运行的程序保持原环境。
 
 代理控制 PiMux Bash 中标准的 HTTP/HTTPS/ALL 代理环境变量，保留 `no_proxy` / `NO_PROXY` 绕过规则，不改写系统代理和外部终端。接受 HTTP、HTTPS 和 SOCKS 地址，具体支持由使用代理的命令决定。状态输出隐藏认证信息，设置文件仅本人可读写。
 
@@ -137,7 +147,7 @@ pimux uninstall
 
 ```bash
 uv sync
-uv run python -m pytest tests/test_pimux.py tests/test_gpu.py
+uv run python -m pytest tests/test_pimux.py tests/test_gpu.py tests/test_views.py
 bash scripts/package.sh
 ```
 

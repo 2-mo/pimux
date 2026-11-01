@@ -32,7 +32,7 @@ toggle_session_pin() (
 manager() (
     local client=${1:-} expand_current=${2:-} selected=0 offset=0 rows cols visible
     local sid wid label key answer name current='' error='' i count root resized=false
-    local query='' searching=false candidate suggestion current_window=''
+    local query='' searching=false candidate suggestion current_window='' preview_target
     local -a roots=() windows=() labels=() pinned_ids=() other_ids=()
     local -A expanded=() pinned=() names=()
     if [[ -n $client ]]; then
@@ -107,8 +107,8 @@ manager() (
             if (( cols < 80 )); then label=$(tr_ui ' 输入筛选  Enter 进入  Esc 清除')
             else label=$(tr_ui ' 输入筛选  ↑↓ 选择  Enter 进入  Backspace 删除  Esc 清除'); fi
         else
-            if (( cols < 80 )); then label=$(tr_ui ' / 搜索  Enter 进入  p 置顶  q 返回')
-            else label=$(tr_ui ' / 搜索  ↑↓ 选择  ←→ 展开  Enter 进入  p 置顶  n 新建  x 关闭  q 返回'); fi
+            if (( cols < 80 )); then label=$(tr_ui ' / 搜索  Enter 进入  d 预览  q 返回')
+            else label=$(tr_ui ' / 搜索  ↑↓ 选择  ←→ 展开  Enter 进入  d 预览  p 置顶  n 新建  x 关闭  q 返回'); fi
         fi
         printf '\033[%s;1H\033[38;2;255;175;95m%s\033[0m' "$((rows > 3 ? rows - 2 : 1))" "$label"
         if (( cols < 80 )); then label=$(tr_ui ' 点击进入  滚轮翻动')
@@ -170,6 +170,19 @@ manager() (
                 if toggle_session_pin "${roots[selected]}"; then
                     current=${roots[selected]}; current_window=${windows[selected]}
                 else error=$(tr_ui '无法保存置顶设置。'); fi
+                ;;
+            d)
+                (( count > 0 )) || continue
+                current=${roots[selected]}; current_window=${windows[selected]}
+                preview_target="$current:$current_window"
+                if [[ -z $current_window && -n $client ]]; then
+                    sid=$(client_session "$client")
+                    [[ $(logical_session "$sid") != "$current" ]] || preview_target="$sid:"
+                fi
+                restore_manager
+                load_gpu
+                (python_view window_details "${PIMUX_COMMAND[0]}" "$PIMUX_TARGET_SOCKET" "$preview_target") || true
+                printf '\033[?1049h\033[?25l\033[?7l\033[?1000h\033[?1006h'
                 ;;
             n)
                 printf '\033[?1000l\033[?1006l\033[%s;1H\033[2K\033[?25h' "$rows"

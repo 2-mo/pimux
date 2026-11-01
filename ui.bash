@@ -1,5 +1,9 @@
 # pimux-managed: English / Simplified Chinese UI and language preference.
 declare -A PIMUX_EN=(
+    ['界面的运行环境未就绪，请运行 pimux update 完成安装。']='The view environment is missing. Run pimux update to complete installation.'
+    ['端口查看']='Listening ports'
+    [' / 搜索  Enter 进入  d 预览  q 返回']=' / search  Enter open  d preview  q back'
+    [' / 搜索  ↑↓ 选择  ←→ 展开  Enter 进入  d 预览  p 置顶  n 新建  x 关闭  q 返回']=' / search  Arrows select/expand  Enter open  d preview  p pin  n new  x close  q back'
     ['显卡界面的运行环境未就绪，请运行 pimux update 完成安装。']='The GPU dashboard environment is missing. Run pimux update to complete installation.'
     ['工作终端']='Work terminal'
     ['会话管理']='Session manager'
@@ -229,6 +233,7 @@ show_menu() {
         "$(tr_ui '管理会话 / 窗口')" s "$(menu_action "$client" manager)" \
         "$(tr_ui "$pin_label")" p "$(menu_action "$client" pin)" \
         "$(tr_ui '显卡详情')" g "$(menu_action "$client" gpu)" \
+        "$(tr_ui '端口查看')" t "$(menu_action "$client" ports)" \
         '' \
         "$(tr_ui '左右分屏')" '|' 'split-window -h -c #{q:pane_current_path}' \
         "$(tr_ui '上下分屏')" '-' 'split-window -v -c #{q:pane_current_path}' \

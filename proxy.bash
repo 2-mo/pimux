@@ -82,36 +82,6 @@ pimux_proxy_command() {
     printf '%s\n' "$(tr_ui '已保存；新终端自动应用，已集成的 PiMux shell 在下次提示符应用。')"
 }
 
-pimux_proxy_view() (
-    local key url message=''
-    trap "printf '\033[0m\033[?25h\033[?1049l'" EXIT
-    printf '\033[?1049h'
-    while :; do
-        printf '\033[H\033[2J'
-        pimux_proxy_show false || true
-        printf '\n%s\n%s\n\n%s\n%s\n' \
-            "$(tr_ui '仅影响 PiMux shell；运行中的程序保持原环境。')" \
-            "$(tr_ui '已有 shell 回到提示符后按 Enter 生效；升级前的旧 shell 请新开窗口。')" \
-            "$(tr_ui 'e 设置地址  o 启用  d 停用  i 继承环境  q 返回')" "$message"
-        printf '%s\n' "$(tr_ui '当前 shell 配有代理时显示青色 ⛓︎，否则隐藏。')"
-        message=''
-        read_ui_key || return
-        key=$PIMUX_KEY
-        case $key in
-            q|$'\e') return ;;
-            e)
-                url=''
-                IFS= read -er -i "${PIMUX_PROXY_URL:-$(pimux_proxy_environment_url)}" \
-                    -p "$(tr_ui '代理地址（清空取消）：')" url || continue
-                [[ -n $url ]] || continue
-                message=$(pimux_proxy_command set "$url" 2>&1) || true ;;
-            o) message=$(pimux_proxy_command on 2>&1) || true ;;
-            d) message=$(pimux_proxy_command off 2>&1) || true ;;
-            i) message=$(pimux_proxy_command reset 2>&1) || true ;;
-        esac
-    done
-)
-
 pimux_apply_proxy() {
     local key saved present exported state
     pimux_proxy_read || return 0

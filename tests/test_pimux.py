@@ -108,6 +108,17 @@ def test_installed_gpu_dashboard_uses_its_own_runtime(tmp_path, monkeypatch):
                             capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     assert 'GPU 0' in result.stdout and '50.0%' in result.stdout
+    ss = bindir / 'ss'
+    ss.write_text('#!/bin/sh\necho \'LISTEN 0 128 127.0.0.1:8888 0.0.0.0:* users:(("demo",pid=2147483647,fd=3))\'\n')
+    ss.chmod(0o755)
+    result = subprocess.run([str(home / '.local/bin/pimux'), 'ports', '8888'], env=env,
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert '8888' in result.stdout and 'demo' in result.stdout
+    result = subprocess.run([str(home / '.local/bin/pimux'), '__proxy'], env=env,
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert 'PiMux' in result.stdout
     result = subprocess.run([str(runtime), '-c',
                              'import importlib.util; import rich, blessed; '
                              'assert importlib.util.find_spec("pytest") is None'],
@@ -750,6 +761,9 @@ def test_search_gpu_popup_and_reload_preserve_running_panes(tmp_path, server):
     smi = bindir / 'nvidia-smi'
     smi.write_text('#!/bin/sh\ncase "$1" in --query-gpu=index,name,*) echo "0, GPU-MOCK, 50, 4096, 8192, 50, 100, 250";; -i) echo "1234, demo-process, 4096";; *) echo "0, 50, 4096";; esac\n')
     smi.chmod(0o755)
+    ss = bindir / 'ss'
+    ss.write_text('#!/bin/sh\necho \'LISTEN 0 128 127.0.0.1:8888 0.0.0.0:* users:(("demo",pid=2147483647,fd=3))\'\n')
+    ss.chmod(0o755)
     env['PATH'] = f'{bindir}:{env["PATH"]}'
     tmux('set-environment', '-g', 'PATH', env['PATH'])
     tmux('set-environment', '-g', 'PIMUX_RUNTIME_FILE', env['PIMUX_RUNTIME_FILE'])
@@ -764,6 +778,7 @@ def test_search_gpu_popup_and_reload_preserve_running_panes(tmp_path, server):
     client = subprocess.Popen([str(SOURCE / 'pimux'), '-n', 'seed'], env=env,
                               stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
     output = bytearray()
+    popups = []
 
     def wait_for(condition):
         deadline = time.monotonic() + 8
@@ -803,6 +818,29 @@ def test_search_gpu_popup_and_reload_preserve_running_panes(tmp_path, server):
         assert not tmux('display-message', '-p', '-t', f'{view}:', '#{pane_mode}')
         os.write(master, b'q')
         wait_for(lambda: '__gpu' not in tmux('show-messages', '-J'))
+        output.clear()
+        os.write(master, b'\x01w')
+        wait_for(lambda: '会话管理'.encode() in output)
+        output.clear()
+        os.write(master, b'd')
+        wait_for(lambda: '窗口预览'.encode() in output and b'sleep' in output)
+        assert tmux('display-message', '-p', '-t', f'{view}:', '#{window_id}') == wanted
+        assert not tmux('display-message', '-p', '-t', f'{view}:', '#{pane_mode}')
+        output.clear()
+        os.write(master, b'q')
+        wait_for(lambda: '会话管理'.encode() in output)
+        os.write(master, b'q')
+        wait_for(lambda: '__manager' not in tmux('show-messages', '-J'))
+        for action, marker in [('ports', b'8888'), ('proxy', 'PiMux 设置'.encode())]:
+            output.clear()
+            popup = subprocess.Popen([str(SOURCE / 'pimux'), '__client',
+                                      tmux('display-message', '-p', '#{socket_path}'),
+                                      os.ttyname(slave), action], env=env,
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            popups.append(popup)
+            wait_for(lambda: marker in output)
+            os.write(master, b'q')
+            assert popup.wait(timeout=5) == 0
         tmux('set-option', '-t', view, 'status-interval', '17')
         os.write(master, b'\x01r')
         wait_for(lambda: tmux('show-options', '-qv', '-t', view, 'status-interval') == '5')
@@ -811,6 +849,10 @@ def test_search_gpu_popup_and_reload_preserve_running_panes(tmp_path, server):
         os.write(master, b'\x01d')
         assert client.wait(timeout=5) == 0
     finally:
+        for popup in popups:
+            if popup.poll() is None:
+                popup.terminate()
+                popup.wait(timeout=5)
         if client.poll() is None:
             client.terminate()
             client.wait(timeout=5)
@@ -1218,27 +1260,53 @@ def test_copy_path_targets_only_requesting_client(tmp_path, server):
 
 
 def test_proxy_panel_sets_disables_and_restores_preferences(tmp_path):
+    import re
+
     file = tmp_path / 'proxy'
-    env = dict(os.environ, PIMUX_PROXY_FILE=str(file), TERM='xterm-256color')
+    language = tmp_path / 'language'
+    language.write_text('en\n')
+    env = dict(os.environ, PIMUX_PROXY_FILE=str(file), TERM='xterm-256color',
+               PIMUX_LANGUAGE_FILE=str(language), NO_COLOR='1')
+    env.pop('TERM_PROGRAM', None)
+    env.pop('TERM_PROGRAM_VERSION', None)
+    env.pop('TMUX', None)
+    env.pop('TMUX_PANE', None)
     master, slave = os.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 26, 120, 0, 0))
-    process = subprocess.Popen([str(SOURCE / 'pimux'), '__proxy'], env=env,
+    process = subprocess.Popen([str(SOURCE / 'pimux'), 'proxy'], env=env,
                                stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
     output = bytearray()
+    queries = bytearray()
 
     def wait_for(condition):
+        nonlocal queries
         deadline = time.monotonic() + 8
         while time.monotonic() < deadline:
             if condition():
                 return
             if select.select([master], [], [], .05)[0]:
-                output.extend(os.read(master, 65536))
+                data = os.read(master, 65536)
+                output.extend(data)
+                queries.extend(data)
+                consumed = 0
+                for match in re.finditer(rb'\x1b(?:P\+q([0-9A-Fa-f;]+)\x1b\\|\[6n|\[>q|\[\?(1000|1006)\$p)', queries):
+                    if match.group(1):
+                        reply = b'\x1bP0+r' + match.group(1) + b'\x1b\\'
+                    elif match.group(2):
+                        reply = b'\x1b[?' + match.group(2) + b';2$y'
+                    elif match[0] == b'\x1b[6n':
+                        reply = b'\x1b[1;1R'
+                    else:
+                        reply = b'\x1bP>|XTerm(400)\x1b\\'
+                    os.write(master, reply)
+                    consumed = match.end()
+                queries = queries[consumed:][-128:]
         pytest.fail(output.decode(errors='replace')[-1500:])
 
     try:
-        wait_for(lambda: b'e set address' in output)
+        wait_for(lambda: b'Set up a proxy' in output)
         os.write(master, b'e')
-        wait_for(lambda: b'Proxy URL' in output)
+        wait_for(lambda: b'Proxy address' in output)
         os.write(master, b'\x15http://127.0.0.1:8088\r')
         wait_for(lambda: file.exists() and file.read_text() == 'on\nhttp://127.0.0.1:8088\n')
         os.write(master, b'd')
@@ -1312,3 +1380,20 @@ pimux_proxy_prompt
     assert '⛓︎' in on_render
     assert off_render == unknown_render == ''
     assert '#{?' not in on_render
+
+def test_window_preview_reports_exit_code_and_preserves_panes(server):
+    import window_details
+
+    env, tmux = server
+    target = tmux('new-window', '-d', '-t', 'seed', '-n', 'exited-preview', '-P', '-F', '#{window_id}')
+    tmux('set-option', '-w', '-t', target, 'remain-on-exit', 'on')
+    tmux('respawn-pane', '-k', '-t', target, 'printf "preview-output\\n"; exit 7')
+    deadline = time.monotonic() + 3
+    # tmux can report pane_dead before the child exit status has been collected.
+    while tmux('display-message', '-p', '-t', target, '#{pane_dead_status}') != '7' and time.monotonic() < deadline:
+        time.sleep(.03)
+    before = tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid} #{pane_dead}')
+    blocks = window_details.window_blocks(shutil.which('tmux'), tmux('display-message', '-p', '#{socket_path}'), target)
+    content = '\n'.join(line.plain for block in blocks for line in block)
+    assert 'exit 7' in content and 'preview-output' in content
+    assert tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid} #{pane_dead}') == before
