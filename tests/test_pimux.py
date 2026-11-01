@@ -380,18 +380,38 @@ def test_shared_server_reload_and_short_command_preserve_other_sessions(server):
 
     # The same physical keys retain their original behavior in an ordinary session.
     master, slave = os.openpty()
-    client = subprocess.Popen(['tmux', 'attach-session', '-t', 'personal'], env=env,
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 30, 140, 0, 0))
+    client_env = {key: value for key, value in env.items() if key not in ('TMUX', 'TMUX_PANE')}
+    client = subprocess.Popen(['tmux', 'attach-session', '-t', 'personal'], env=client_env,
                               stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
     try:
+        output = bytearray()
+
+        def drain():
+            if select.select([master], [], [], .05)[0]:
+                output.extend(os.read(master, 65536))
+
         deadline = time.monotonic() + 5
-        while not tmux('list-clients', '-F', '#{client_name}') and time.monotonic() < deadline:
-            time.sleep(.05)
-        os.write(master, b'\x02g')
+        while b'personal' not in output and time.monotonic() < deadline:
+            drain()
+        assert b'personal' in output, output
+        os.write(master, b'\x02')
+        deadline = time.monotonic() + 5
+        while tmux('list-clients', '-F', '#{client_prefix}') != '1' and time.monotonic() < deadline:
+            drain()
+        assert tmux('list-clients', '-F', '#{client_prefix}') == '1'
+        os.write(master, b'g')
+        deadline = time.monotonic() + 5
         while time.monotonic() < deadline:
             if tmux('show-options', '-qv', '-t', 'personal', '@original_gpu_key') == 'used':
                 break
-            time.sleep(.05)
-        assert tmux('show-options', '-qv', '-t', 'personal', '@original_gpu_key') == 'used'
+            drain()
+        assert tmux('show-options', '-qv', '-t', 'personal', '@original_gpu_key') == 'used', (
+            tmux('show-options', '-Aqv', '-t', 'personal', 'prefix'),
+            tmux('list-clients', '-F', '#{session_name} #{client_key_table} #{client_prefix}'),
+            tmux('list-keys', '-T', 'prefix', 'g'),
+            tmux('list-sessions', '-F', '#{session_name}:#{@original_gpu_key}'),
+        )
     finally:
         client.terminate()
         client.wait(timeout=5)
