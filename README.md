@@ -51,7 +51,8 @@ pimux -n work         # Create or enter a named session
 pimux ls              # List sessions, windows and directories
 pimux ls project      # Filter the listing
 pimux gpu             # Live GPU details
-pimux proxy           # Proxy preferences and this shell’s actual proxy environment
+pimux ports           # Listeners, processes and directories; optionally add a port
+pimux proxy           # Open proxy settings
 pimux doctor          # Version, tmux, color and clipboard diagnostics
 pimux reload          # Reload without restarting tasks
 pimux update          # Install the latest release without restarting tasks
@@ -79,14 +80,23 @@ Press `Ctrl-a`, release it, then press the action key. A bright orange badge sho
 
 In the manager, `n` creates a session with the current directory name prefilled: Enter accepts, or edit the name or clear it to cancel. `x` closes the selected item after confirmation, and `q` returns. The GPU popup refreshes every second. Click a card or use the arrows to select a GPU; the wheel moves between rows, and Page Up/Down changes pages. Press `d` for memory capacity, temperature, power and compute processes. Expanded details retain full process paths and show launch commands and working directories when visible to your Linux user. Long lines wrap, and the wheel or Page Up/Down scrolls through all details; arrows still select GPUs. Press `r` to refresh or `q` / Esc to return. Both popups belong to the current client and do not replace another terminal's application pane.
 
+## Ports and window previews
+
+Choose **Listening ports** from `Ctrl-a h`, or run `pimux ports`, to inspect local TCP listeners, owning processes, commands and working directories. Press `/` to filter by port, process or directory; Enter finishes typing and Esc clears the search. Use `pimux ports 8888` for an exact port lookup. Visibility follows system permissions. These are server listeners, not a service health check or your local forwarded addresses.
+
+In the manager, select a window and press `d` to preview each pane's idle/alive state, working directory and last 60 lines of output. Selecting a session previews its current window. Exit codes are available for exited panes retained by tmux. Previews refresh every three seconds; scroll with the wheel or arrows, and use `q` / Esc to return to the same manager selection. Inspection does not change another client's selected window or send keys to applications.
+
 ## Network proxy
 
 The small cyan `⛓︎` before the GPU circles appears only when the active pane's shell reports a configured proxy. Otherwise it stays hidden without reserving any space, including in older shells that have not reported yet. This indicates environment settings, not a connectivity test.
 
-Open `Ctrl-a h` and choose **Network proxy** to set an address, enable/disable it, or inherit the shell's startup environment. Disabling remembers the address for next time. By default PiMux inherits existing settings.
+Run `pimux proxy`, or choose **Network proxy** from `Ctrl-a h`. The panel separates PiMux preferences, the current terminal's reported proxy state and the saved address. Select with arrows and Enter, or click an action. Disabling keeps the address; using the startup environment restores each shell's original settings.
+
+Press `e` to edit inline. A short address such as `127.0.0.1:7890` is accepted. Enter saves and enables it, Esc cancels, and Ctrl-u clears the field. Invalid addresses show an inline error. Authentication is masked in both display and editing. A terminal that has not reported its environment is shown as unreported, rather than assuming a saved preference is already active.
 
 ```bash
-pimux proxy                            # Show preferences and inherited environment
+pimux proxy                            # Open the settings panel
+pimux proxy show                       # Print preferences and inherited environment
 pimux proxy set http://127.0.0.1:7890    # Replace with your proxy address; enables it
 pimux proxy off                        # Disable
 pimux proxy on                         # Re-enable the saved address
@@ -135,7 +145,7 @@ The workspace launcher is Bash; the GPU dashboard uses Python 3.10+, Rich and Bl
 
 ```bash
 uv sync
-uv run python -m pytest tests/test_pimux.py tests/test_gpu.py
+uv run python -m pytest tests/test_pimux.py tests/test_gpu.py tests/test_views.py
 bash scripts/package.sh
 ```
 

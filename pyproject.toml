@@ -1,7 +1,7 @@
 [project]
 name = "pimux-dev"
-version = "0.4.1"
-description = "GPU dashboard runtime and development checks for PiMux"
+version = "0.5.0"
+description = "Terminal view runtime and development checks for PiMux"
 requires-python = ">=3.10"
 dependencies = [
     "blessed>=1.48,<2",

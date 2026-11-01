@@ -63,7 +63,7 @@ install_files() (
     flock 9
     install_asset "$source_dir/pimux" "$target_home/.local/bin/pimux" 755
     install_asset "$source_dir/pimux.conf" "$config_dir/tmux.conf" 644
-    for file in ui.bash manager.bash gpu.bash gpu.py gpu_ui.py proxy.bash shell.bash bashrc starship.toml uninstall.sh; do
+    for file in ui.bash manager.bash gpu.bash gpu.py gpu_ui.py inspect_ui.py ports.py window_details.py proxy_ui.py proxy.bash shell.bash bashrc starship.toml uninstall.sh; do
         install_asset "$source_dir/$file" "$config_dir/$file" 644
     done
     install_command_path "$target_home"
@@ -110,7 +110,7 @@ install_starship() (
 
 install_dependencies() {
     local command missing=false
-    for command in tmux infocmp flock timeout readlink curl; do
+    for command in tmux infocmp flock timeout readlink curl ss; do
         command -v "$command" >/dev/null 2>&1 || missing=true
     done
     if command -v infocmp >/dev/null 2>&1; then
@@ -118,7 +118,7 @@ install_dependencies() {
     fi
     [[ $missing == true ]] || return 0
     command -v apt-get >/dev/null 2>&1 || {
-        printf 'Install Bash 4+, tmux 3.2+, ncurses terminfo, util-linux, coreutils and curl, then rerun this installer.\n' >&2
+        printf 'Install Bash 4+, tmux 3.2+, ncurses terminfo, util-linux, coreutils, iproute2 and curl, then rerun this installer.\n' >&2
         return 1
     }
     local -a admin=()
@@ -128,7 +128,7 @@ install_dependencies() {
     fi
     printf 'Installing missing terminal dependencies through apt.\n'
     "${admin[@]}" apt-get update
-    "${admin[@]}" apt-get install -y tmux ncurses-term util-linux coreutils curl ca-certificates
+    "${admin[@]}" apt-get install -y tmux ncurses-term util-linux coreutils iproute2 curl ca-certificates
 }
 
 main() {

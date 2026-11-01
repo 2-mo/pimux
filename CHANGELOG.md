@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.0
+
+- Add a searchable TCP port inspector with process commands and working directories, available from the menu and `pimux ports [PORT]`.
+- Preview window state, retained exit codes and recent output with `d` in the manager, keeping client selection and running panes intact.
+- Redesign proxy settings with separate saved and reported states, focused keyboard/mouse actions, inline validation and cancellable address editing.
+- Open the proxy panel with `pimux proxy`; retain explicit text output through `pimux proxy show` and noninteractive calls.
+- Reuse the private Python runtime for all views and prepare iproute2 automatically when needed.
+
 ## 0.4.1
 
 - Preserve full GPU process paths and show visible launch commands and working directories so Python tasks can be identified.
