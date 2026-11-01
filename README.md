@@ -6,7 +6,7 @@
 
 ![PiMux workspace illustration](docs/preview.svg)
 
-A coordinated purple/cyan theme, a useful shell prompt, searchable sessions and compact GPU indicators — installed together. No Python runtime, dotfile editing or special fonts required.
+A coordinated purple/cyan theme, a useful shell prompt, searchable sessions and compact GPU indicators — installed together. No manual Python setup, dotfile editing or special fonts required.
 
 ## Install
 
@@ -16,7 +16,7 @@ On Linux:
 curl -fsSL https://raw.githubusercontent.com/2-mo/pimux/main/install.sh | bash && export PATH="$HOME/.local/bin:$PATH"
 ```
 
-The installer verifies the release checksum, installs missing system dependencies through apt on Debian/Ubuntu, installs or reuses [Starship](https://starship.rs/), and sets up the complete workspace in your home directory. Administrator access is only needed when system packages are missing. NVIDIA drivers are optional and are never installed by PiMux.
+The installer verifies the release checksum, installs missing system dependencies through apt on Debian/Ubuntu, installs or reuses [Starship](https://starship.rs/), and sets up the complete workspace in your home directory. Administrator access is only needed when system packages are missing. NVIDIA drivers are optional and are never installed by PiMux. The installer uses [uv](https://docs.astral.sh/uv/) to prepare a private Python environment for the bundled GPU dashboard, installing uv and a compatible Python when needed. It does not install packages into your research environment.
 
 Open the installed workspace:
 
@@ -35,7 +35,7 @@ Alternatively, download and extract `pimux-linux.tar.gz` from [Releases](https:/
 - **Search, then jump.** Window entries show the active pane’s foreground program. Open the manager, press `/`, and type a session name, window name, program or directory. Matches update as you type. Arrows select, Enter opens, Backspace edits, and Esc clears the search. Search is literal and case-insensitive.
 - **Pinned sessions.** Press `p` on a manager entry, or pin the current session from `Ctrl-a h`. Pinned sessions stay at the top with a `*`; the same action unpins them. Preferences survive reconnects and recreating a session with the same name.
 - **Mouse support.** Click manager entries to open them, click the left arrow to expand or collapse, and use the wheel to scroll the manager or GPU details. Mouse support is enabled automatically.
-- **GPU activity at a glance.** Bold circles show approximate utilization, with four GPUs per group. Press `Ctrl-a g` for live utilization, memory and process details in a popup.
+- **GPU activity at a glance.** Bold circles show approximate utilization, with four GPUs per group. Press `Ctrl-a g` for the bundled pi gpu-style dashboard: compact cards, utilization trends, memory bars and optional process details.
 - **English and Chinese.** Open `Ctrl-a h`, choose `Language / 语言`, then select a language. The preference is saved automatically.
 - **An isolated tmux server.** Fresh installations use their own `pimux` socket. Your normal tmux configuration is preserved. Shell startup files receive only a command-path entry. Styled shells load your existing Bash setup, then apply PiMux's prompt inside the workspace.
 
@@ -77,7 +77,7 @@ Press `Ctrl-a`, release it, then press the action key. A bright orange badge sho
 | `/` | Keyboard help |
 | `r` / `d` | Reload / detach and leave tasks running |
 
-In the manager, `n` creates a session with the current directory name prefilled: Enter accepts, or edit the name or clear it to cancel. `x` closes the selected item after confirmation, and `q` returns. The GPU popup refreshes every five seconds; the mouse wheel, arrows and Page Up/Down scroll, and `r` refreshes immediately. Both popups belong to the current client and do not replace another terminal's application pane.
+In the manager, `n` creates a session with the current directory name prefilled: Enter accepts, or edit the name or clear it to cancel. `x` closes the selected item after confirmation, and `q` returns. The GPU popup refreshes every second. Click a card or use the arrows to select a GPU; the wheel moves between rows, and Page Up/Down changes pages. Press `d` for memory capacity, temperature, power and compute processes, `r` to refresh, or `q` / Esc to return. Both popups belong to the current client and do not replace another terminal's application pane.
 
 ## Network proxy
 
@@ -107,7 +107,7 @@ From left to right, circles follow the machine's physical GPU order in `nvidia-s
 - Cyan: computation is active.
 - Orange: memory is occupied but computation is low, or a query is unavailable (`?`). Waiting for data can also cause low utilization; this is not a process-health diagnosis.
 
-The status bar refreshes on a five-second timer; window changes and other redraws may update it sooner. Without `nvidia-smi`, the circles disappear automatically. GPU details use the driver's own report, including its process visibility and permissions.
+The status bar refreshes on a five-second timer; window changes and other redraws may update it sooner. Without `nvidia-smi`, the circles disappear automatically. The bundled dashboard reads structured telemetry from the NVIDIA driver through `nvidia-smi`; it does not need RIPO or an installed `pi` command. Process visibility still follows driver permissions.
 
 ## Compatibility and existing tmux sessions
 
@@ -131,11 +131,11 @@ Uninstall removes only the managed launcher. Your configuration, backups, shared
 
 ## Development
 
-The runtime is Bash. Python and pytest are development tools only, managed with [uv](https://docs.astral.sh/uv/).
+The workspace launcher is Bash; the GPU dashboard uses Python 3.10+, Rich and Blessed. Runtime and development dependencies are locked and managed with [uv](https://docs.astral.sh/uv/). The installer keeps the GPU environment at `~/.local/share/pimux/venv`.
 
 ```bash
 uv sync
-uv run python -m pytest tests/test_pimux.py
+uv run python -m pytest tests/test_pimux.py tests/test_gpu.py
 bash scripts/package.sh
 ```
 

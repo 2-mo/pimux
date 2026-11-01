@@ -56,7 +56,7 @@ def test_install_exposes_short_command_and_preserves_user_settings(tmp_path):
     assert len(list(home.glob('.bashrc.pimux-backup.*'))) == 1
     assert os.access(home / '.local/bin/pimux', os.X_OK)
     config = home / '.config/pimux'
-    for file in ('tmux.conf', 'bashrc', 'shell.bash', 'starship.toml', 'gpu.bash', 'proxy.bash'):
+    for file in ('tmux.conf', 'bashrc', 'shell.bash', 'starship.toml', 'gpu.bash', 'gpu.py', 'gpu_ui.py', 'proxy.bash'):
         assert (config / file).is_file()
     theme = config / 'tmux.conf'
     theme.write_text('# pimux-managed: previous theme\n')
@@ -81,6 +81,38 @@ def test_install_refuses_unrelated_launcher_and_keeps_symlink(tmp_path):
     assert launcher.read_text() == '# unrelated user tool\n'
     assert main.is_symlink()
     assert config.read_text() == '# existing dotfiles\n'
+
+
+def test_installed_gpu_dashboard_uses_its_own_runtime(tmp_path, monkeypatch):
+    home = tmp_path / 'home'
+    home.mkdir()
+    unrelated = tmp_path / 'research-environment'
+    unrelated.mkdir()
+    marker = unrelated / 'keep.txt'
+    marker.write_text('existing research environment')
+    monkeypatch.setenv('VIRTUAL_ENV', str(unrelated))
+    assert install(home).returncode == 0
+    result = install(home, 'install_gpu_runtime')
+    assert result.returncode == 0, result.stderr
+    assert marker.read_text() == 'existing research environment'
+    assert list(unrelated.iterdir()) == [marker]
+    runtime = home / '.local/share/pimux/venv/bin/python'
+    assert runtime.is_file()
+    bindir = tmp_path / 'bin'
+    bindir.mkdir()
+    smi = bindir / 'nvidia-smi'
+    smi.write_text('#!/bin/sh\necho "0, Installed GPU, 50, 1024, 8192, 50, 100, 250"\n')
+    smi.chmod(0o755)
+    env = dict(os.environ, HOME=str(home), PATH=f'{bindir}:{os.environ["PATH"]}')
+    result = subprocess.run([str(home / '.local/bin/pimux'), '__gpu'], env=env,
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert 'GPU 0' in result.stdout and '50.0%' in result.stdout
+    result = subprocess.run([str(runtime), '-c',
+                             'import importlib.util; import rich, blessed; '
+                             'assert importlib.util.find_spec("pytest") is None'],
+                            env=env, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
 
 
 def test_shell_initializes_starship_when_only_environment_was_inherited(tmp_path):
@@ -716,7 +748,7 @@ def test_search_gpu_popup_and_reload_preserve_running_panes(tmp_path, server):
     bindir = tmp_path / 'bin'
     bindir.mkdir()
     smi = bindir / 'nvidia-smi'
-    smi.write_text('#!/bin/sh\ncase "$1" in --query-gpu=*) echo "0, 50, 4096";; *) echo "GPU-MOCK 1234 demo-process 4096MiB";; esac\n')
+    smi.write_text('#!/bin/sh\ncase "$1" in --query-gpu=index,name,*) echo "0, GPU-MOCK, 50, 4096, 8192, 50, 100, 250";; -i) echo "1234, demo-process, 4096";; *) echo "0, 50, 4096";; esac\n')
     smi.chmod(0o755)
     env['PATH'] = f'{bindir}:{env["PATH"]}'
     tmux('set-environment', '-g', 'PATH', env['PATH'])
@@ -764,7 +796,9 @@ def test_search_gpu_popup_and_reload_preserve_running_panes(tmp_path, server):
         wait_for(lambda: '__manager' not in tmux('show-messages', '-J'))
         output.clear()
         os.write(master, b'\x01g')
-        wait_for(lambda: b'GPU-MOCK 1234 demo-process 4096MiB' in output)
+        wait_for(lambda: b'GPU 0' in output)
+        os.write(master, b'd')
+        wait_for(lambda: b'GPU-MOCK' in output and b'demo-process' in output)
         assert tmux('display-message', '-p', '-t', f'{view}:', '#{window_id}') == wanted
         assert not tmux('display-message', '-p', '-t', f'{view}:', '#{pane_mode}')
         os.write(master, b'q')
@@ -855,16 +889,21 @@ manager
         os.close(slave)
 
 
-def test_gpu_mouse_wheel_scrolls_and_restores_terminal(tmp_path, server):
+@pytest.mark.parametrize('exit_with', ['q', 'signal'])
+def test_gpu_mouse_wheel_scrolls_and_restores_terminal(tmp_path, server, exit_with):
+    import re
+
     env, _ = server
+    env['NO_COLOR'] = '1'  # Disabling colors must not disable mouse input.
     bindir = tmp_path / 'gpu-bin'
     bindir.mkdir()
     smi = bindir / 'nvidia-smi'
-    smi.write_text('#!/bin/sh\nseq -f "GPU row %02g" 1 60\n')
+    smi.write_text('#!/bin/sh\nseq -f "%g, GPU-MOCK, 50, 1024, 8192, 50, 100, 250" 0 39\n')
     smi.chmod(0o755)
     env['PATH'] = f'{bindir}:{env["PATH"]}'
     master, slave = os.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 20, 110, 0, 0))
+    original_terminal = termios.tcgetattr(slave)
     process = subprocess.Popen([str(SOURCE / 'pimux'), '__gpu'], env=env,
                                stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
     output = bytearray()
@@ -875,21 +914,36 @@ def test_gpu_mouse_wheel_scrolls_and_restores_terminal(tmp_path, server):
             if value in output:
                 return
             if select.select([master], [], [], .05)[0]:
-                output.extend(os.read(master, 65536))
+                data = os.read(master, 65536)
+                output.extend(data)
+                # Respond as a terminal with mouse reporting initially disabled.
+                for mode in (1000, 1006):
+                    if f'\x1b[?{mode}$p'.encode() in data:
+                        os.write(master, f'\x1b[?{mode};2$y'.encode())
         pytest.fail(output.decode(errors='replace')[-2000:])
 
     try:
-        wait_for(b'GPU row 15')
-        assert b'GPU row 18' not in output
+        wait_for(b'GPU15')
+        assert b'GPU16' not in output
+        # Each wheel step selects the next row; crossing the page reveals more cards.
         output.clear()
-        os.write(master, b'\x1b[<65;10;5M')
-        wait_for(b'GPU row 18')
+        os.write(master, b'\x1b[<65;10;5M' * 4)
+        wait_for(b'GPU16')
         output.clear()
         os.write(master, b'\x1b[<64;10;5M')
-        wait_for(b'GPU row 01')
-        os.write(master, b'q')
-        wait_for(b'\x1b[?1000l\x1b[?1006l')
+        wait_for(b'GPU 0')
+        if exit_with == 'q':
+            os.write(master, b'q')
+        else:
+            process.send_signal(signal.SIGTERM)
+        wait_for(b'\x1b[?1049l')
         assert process.wait(timeout=5) == 0
+        while select.select([master], [], [], 0)[0]:
+            output.extend(os.read(master, 65536))
+        reset_modes = {mode for modes in re.findall(rb'\x1b\[\?([0-9;]+)l', output)
+                       for mode in modes.split(b';')}
+        assert {b'1000', b'1006'} <= reset_modes
+        assert termios.tcgetattr(slave) == original_terminal
     finally:
         if process.poll() is None:
             process.terminate()

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0
+
+- Bundle a standalone version of the pi gpu dashboard: compact GPU cards, utilization curves, memory bars and optional temperature, power and process details.
+- Refresh GPU details every second; retain lightweight five-second status circles.
+- Select cards with arrows or mouse clicks, navigate with the wheel or Page Up/Down, and press d for details or q/Esc to return.
+- Automatically prepare a private, locked Python environment with uv; no RIPO installation or project-environment changes are needed.
+- Follow PiMux's English/Chinese preference and restore terminal input, cursor and mouse state when the dashboard closes.
+
 ## 0.3.2
 
 - Stabilize isolated keyboard checks by using an outer terminal environment and waiting for the prefix key to be ready.
