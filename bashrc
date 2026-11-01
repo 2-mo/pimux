@@ -1,4 +1,4 @@
-# piux-managed: shared Bash prompt for tmux and ordinary terminals.
+# pimux-managed: shared Bash prompt for tmux and ordinary terminals.
 case $- in
     *i*) ;;
     *) return ;;
@@ -10,7 +10,7 @@ case ":$PATH:" in
 esac
 
 if command -v starship >/dev/null 2>&1; then
-    export STARSHIP_CONFIG="$HOME/.config/piux/starship.toml"
+    export STARSHIP_CONFIG="$HOME/.config/pimux/starship.toml"
     # STARSHIP_SHELL is inherited by tmux and nested shells; functions are not.
     if ! declare -F starship_precmd >/dev/null; then
         eval "$(starship init bash)"

@@ -1,4 +1,4 @@
-# piux-managed: portable copy of the personal Starship prompt.
+# pimux-managed: portable copy of the personal Starship prompt.
 # Context stays on the first line; command input starts on the second line.
 format = "$directory$git_branch$python$time$cmd_duration\n$character"
 add_newline = false
@@ -10,6 +10,7 @@ truncation_length = 0
 truncate_to_repo = false
 
 [git_branch]
+symbol = "git:"
 # Keep the branch name; the dirty/ahead-behind indicators are disabled below.
 format = "on [$symbol$branch]($style) "
 
@@ -39,5 +40,5 @@ format = "at [$time]($style) "
 style = "dimmed white"
 
 [character]
-success_symbol = "[❯](bold green)"
+success_symbol = "[❯](bold cyan)"
 error_symbol = "[❯](bold red)"

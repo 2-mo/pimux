@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="540" viewBox="0 0 1120 540" role="img" aria-label="Illustrated PiMux terminal workspace with a shell prompt, split panes and GPU circles">
+  <rect width="1120" height="540" rx="18" fill="#13161c"/>
+  <rect x="20" y="20" width="1080" height="500" rx="12" fill="#1b1e25" stroke="#3b414d"/>
+  <path d="M32 20h1056a12 12 0 0 1 12 12v32H20V32a12 12 0 0 1 12-12" fill="#272b34"/>
+  <circle cx="43" cy="42" r="5" fill="#ff8f8f"/><circle cx="61" cy="42" r="5" fill="#e5c07b"/><circle cx="79" cy="42" r="5" fill="#90c995"/>
+  <g font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="16">
+    <text x="560" y="48" text-anchor="middle" fill="#b7a1e8">PiMux · Personal Interactive MUltipleXer</text>
+    <text x="44" y="101" fill="#63c5f8">~/projects/demo</text>
+    <text x="214" y="101" fill="#b7a1e8">on git:main</text>
+    <text x="354" y="101" fill="#737d91">at 10:24:08</text>
+    <text x="44" y="132" fill="#63c5f8" font-weight="bold">❯</text><text x="68" y="132" fill="#d8dce4">make test</text>
+    <text x="44" y="177" fill="#9ca3af">Running project checks…</text>
+    <text x="44" y="209" fill="#90c995">All checks passed.</text>
+    <text x="44" y="258" fill="#63c5f8">~/projects/demo</text><text x="214" y="258" fill="#b7a1e8">on git:main</text>
+    <text x="44" y="289" fill="#63c5f8" font-weight="bold">❯</text><rect x="69" y="273" width="9" height="19" fill="#b7a1e8"/>
+    <path d="M600 64v379" stroke="#3b414d"/>
+    <text x="626" y="102" fill="#b7a1e8" font-weight="bold">A workspace that stays with you.</text>
+    <text x="626" y="151" fill="#ffaf5f">Ctrl-a s</text><text x="746" y="151" fill="#9ca3af">Search your sessions</text>
+    <text x="626" y="188" fill="#ffaf5f">Ctrl-a g</text><text x="746" y="188" fill="#9ca3af">Live GPU details</text>
+    <text x="626" y="225" fill="#ffaf5f">Ctrl-a h</text><text x="746" y="225" fill="#9ca3af">Everything in a menu</text>
+    <text x="626" y="262" fill="#ffaf5f">Ctrl-a d</text><text x="746" y="262" fill="#9ca3af">Detach. Keep working.</text>
+    <text x="626" y="341" fill="#737d91">Theme + prompt + tmux + GPU view.</text>
+    <text x="626" y="370" fill="#737d91">Installed together. Ready to use.</text>
+    <rect x="21" y="443" width="1078" height="39" fill="#202329"/>
+    <text x="43" y="468" fill="#b7a1e8" font-weight="bold">work</text>
+    <rect x="117" y="448" width="142" height="29" rx="4" fill="#272b34"/>
+    <text x="128" y="468" fill="#63c5f8">› 1:shell</text><text x="283" y="468" fill="#9ca3af">2:logs</text>
+    <text x="846" y="468" fill="#9ca3af" font-weight="bold">○ ○</text>
+    <text x="894" y="468" fill="#63c5f8" font-weight="bold">◑ ●</text>
+    <text x="956" y="468" fill="#63c5f8" font-weight="bold">● ◕</text>
+    <text x="1005" y="468" fill="#e5a35b" font-weight="bold">○</text><text x="1031" y="468" fill="#9ca3af" font-weight="bold">○</text>
+    <text x="43" y="508" fill="#9ca3af">~/projects/demo</text>
+    <text x="786" y="508" fill="#ffaf5f">Ctrl-a → d detach  h menu</text>
+  </g>
+</svg>

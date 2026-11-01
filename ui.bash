@@ -1,8 +1,17 @@
-# piux-managed: English / Simplified Chinese UI and language preference.
-declare -A PIUX_EN=(
+# pimux-managed: English / Simplified Chinese UI and language preference.
+declare -A PIMUX_EN=(
     ['工作终端']='Work terminal'
     ['会话管理']='Session manager'
     ['窗口']=windows
+    [' 搜索：%s\n\n']=' Search: %s\n\n'
+    [' 没有匹配的窗口，Esc 清除搜索。\n']=' No matching windows. Esc clears the search.\n'
+    [' / 搜索  ↑↓ 选择  ←→ 展开  Enter 进入  n 新建  x 关闭  q 返回']=' / search  Arrows select/expand  Enter open  n new  x close  q back'
+    [' 输入筛选  ↑↓ 选择  Enter 进入  Backspace 删除  Esc 清除']=' Type to filter  Arrows select  Enter open  Backspace delete  Esc clear'
+    ['显卡详情']='GPU details'
+    ['查看显卡详情；q / Esc 返回']='Show GPU details; q / Esc to return'
+    ['未找到 nvidia-smi；显卡详情需要 NVIDIA 驱动。']='nvidia-smi was not found; GPU details require an NVIDIA driver.'
+    ['显卡查询失败或超时；按 r 重试。']='GPU query failed or timed out; press r to retry.'
+    ['每 5 秒刷新  ↑↓ / PgUp / PgDn 滚动  r 刷新  q / Esc 返回']='Every 5s  Arrows / PgUp / PgDn scroll  r refresh  q / Esc back'
     ['新建窗口']='New window'
     ['重命名窗口']='Rename window'
     ['窗口名称：']='Window name:'
@@ -15,7 +24,7 @@ declare -A PIUX_EN=(
     ['快捷键帮助']='Keyboard help'
     [' 会话名称（空白取消）：']=' Session name (blank to cancel):'
     [' ↑↓ 选择  ←→ 展开/收起  Enter 进入  n 新建  x 关闭  r 刷新  q 返回']=' Arrows select/expand  Enter open  n new  x close  r refresh  q back'
-    [' 暂无会话。按 n 新建，或 q 返回后运行 piux -n NAME。\n']=' No sessions. Press n to create one, or q and run piux -n NAME.\n'
+    [' 暂无会话。按 n 新建，或 q 返回后运行 pimux -n NAME。\n']=' No sessions. Press n to create one, or q and run pimux -n NAME.\n'
     [' 关闭会话 %s 及其全部窗口，影响所有连接？[y/N] ']=' Close session %s and ALL its windows for every connection? [y/N] '
     [' 关闭窗口 %s，影响所有连接？[y/N] ']=' Close window %s for every connection? [y/N] '
     ['会话已关闭或不存在。']='Session is already closed or no longer exists.'
@@ -23,30 +32,30 @@ declare -A PIUX_EN=(
     ['运行配置应为三行：新版程序路径、socket 名称、系统程序路径：%s\n']='Runtime config must have three lines: new binary, socket name, system binary: %s\n'
     ['运行配置中的程序路径或 socket 名称无效：%s\n']='Invalid binary path or socket name in runtime config: %s\n'
     ['请先安装 tmux（Ubuntu：sudo apt install tmux）。\n']='Install tmux first (Ubuntu: sudo apt install tmux).\n'
-    ['请在交互终端中运行；只读查看请用 piux ls。\n']='Run this in an interactive terminal; use piux ls for a read-only listing.\n'
-    ['当前位于另一个 tmux server。请先按 Ctrl-a d 离开，再运行此命令；旧会话用 piux --system。\n']='You are in another tmux server. Detach with Ctrl-a d first; use piux --system for old sessions.\n'
+    ['请在交互终端中运行；只读查看请用 pimux ls。\n']='Run this in an interactive terminal; use pimux ls for a read-only listing.\n'
+    ['当前位于另一个 tmux server。请先按 Ctrl-a d 离开，再运行此命令；旧会话用 pimux --system。\n']='You are in another tmux server. Detach with Ctrl-a d first; use pimux --system for old sessions.\n'
     ['已重载配置；会话和任务继续运行。前缀为 Ctrl-a。\n']='Configuration reloaded; sessions and tasks keep running. Prefix: Ctrl-a.\n'
     ['配置会在此 tmux server 下次启动时加载。\n']='Configuration will load when this tmux server starts.\n'
     ['会话名不能为空，也不能以 - 开头或包含 . : $ { } # 或控制字符。\n']='A session name must not be empty, start with -, or contain . : $ { } # or control characters.\n'
     ['当前窗口有多个连接，请用 Ctrl-a h → 管理，明确操作当前终端。\n']='The current window has multiple connections. Use Ctrl-a h > Manage to address this terminal.\n'
-    ['暂无会话。运行 piux -n NAME 创建，或在 piux 管理列表中按 n。\n']='No sessions. Run piux -n NAME or press n in the piux manager.\n'
+    ['暂无会话。运行 pimux -n NAME 创建，或在 pimux 管理列表中按 n。\n']='No sessions. Run pimux -n NAME or press n in the pimux manager.\n'
     ['没有匹配的窗口。\n']='No matching windows.\n'
     ['tmux：%s\n']='tmux: %s\n'
     ['程序：%s\nsocket：%s\n']='Binary: %s\nSocket: %s\n'
-    ['版本：满足 piux 配置要求（>= 3.2）\n']='Version: meets the piux requirement (>= 3.2).\n'
-    ['版本：配置要求 tmux >= 3.2\n']='Version: piux requires tmux >= 3.2.\n'
+    ['版本：满足 pimux 配置要求（>= 3.2）\n']='Version: meets the pimux requirement (>= 3.2).\n'
+    ['版本：配置要求 tmux >= 3.2\n']='Version: pimux requires tmux >= 3.2.\n'
     ['terminfo：tmux-256color 可用\n']='terminfo: tmux-256color is available.\n'
     ['terminfo：缺少 tmux-256color，请安装 ncurses-term\n']='terminfo: tmux-256color is missing; install ncurses-term.\n'
     ['当前 TERM：%s（tmux 内的 TERM 不代表外层 VS Code）\n']='Current TERM: %s (the inner TERM does not identify the outer VS Code terminal).\n'
     ['未设置']=unset
-    ['尚未加载 piux']='piux has not been loaded'
+    ['尚未加载 pimux']='pimux has not been loaded'
     ['运行中的 server：#{version}（PID #{pid}）']='Running server: #{version} (PID #{pid})'
     ['运行配置：%s\n']='Active configuration: %s\n'
     ['客户端：#{client_name}  TERM=#{client_termname}  能力=#{client_termfeatures}']='Client: #{client_name}  TERM=#{client_termname}  Features=#{client_termfeatures}'
     ['运行配置：尚未启动 tmux，会在新会话启动时读取。\n']='Active configuration: no server yet; it will load on startup.\n'
     ['本地剪贴板需实际验证；配置能力不等于复制成功。\n']='Test the local clipboard by pasting; advertised support does not guarantee success.\n'
-    ['已发送测试文字，请在本地编辑器粘贴并检查：piux clipboard test\n']='Test text sent. Paste into your local editor and check: piux clipboard test\n'
-    ['未知命令：%s；会话请用 piux -n NAME，帮助请用 piux -h。\n']='Unknown command: %s. Use piux -n NAME for a session or piux -h for help.\n'
+    ['已发送测试文字，请在本地编辑器粘贴并检查：pimux clipboard test\n']='Test text sent. Paste into your local editor and check: pimux clipboard test\n'
+    ['未知命令：%s；会话请用 pimux -n NAME，帮助请用 pimux -h。\n']='Unknown command: %s. Use pimux -n NAME for a session or pimux -h for help.\n'
     ['先按 Ctrl-a 并松开，再按下列操作键；数字键直接切窗口。']='Press Ctrl-a, release it, then press an action key below. Number keys select windows.'
     ['向应用发送 Ctrl-a（shell 中回到行首）']='Send Ctrl-a to the application (start of line in a shell)'
     ['新建 shell 窗口，继承当前目录']='New shell window in the current directory'
@@ -71,20 +80,20 @@ declare -A PIUX_EN=(
     ['重载配置']='Reload configuration'
     ['查看此帮助；先按 Ctrl-a 并松开，再按操作键；数字键直接切窗口']='Show keyboard help; press and release Ctrl-a before an action key'
     ['打开操作菜单']='Open the menu'
-    ['piux 配置已重载']='piux configuration reloaded'
+    ['pimux 配置已重载']='pimux configuration reloaded'
 )
 load_language() {
-    PIUX_LANGUAGE=en
+    PIMUX_LANGUAGE=en
     local value=''
-    if [[ -f ${PIUX_LANGUAGE_FILE:-$HOME/.config/piux/language} ]]; then
-        IFS= read -r value < "${PIUX_LANGUAGE_FILE:-$HOME/.config/piux/language}" || true
-        case $value in en|zh) PIUX_LANGUAGE=$value ;; esac
+    if [[ -f ${PIMUX_LANGUAGE_FILE:-$HOME/.config/pimux/language} ]]; then
+        IFS= read -r value < "${PIMUX_LANGUAGE_FILE:-$HOME/.config/pimux/language}" || true
+        case $value in en|zh) PIMUX_LANGUAGE=$value ;; esac
     fi
 }
 
 tr_ui() {
-    if [[ $PIUX_LANGUAGE == en ]]; then
-        printf '%s' "${PIUX_EN[$1]:-$1}"
+    if [[ $PIMUX_LANGUAGE == en ]]; then
+        printf '%s' "${PIMUX_EN[$1]:-$1}"
     else
         printf '%s' "$1"
     fi
@@ -97,24 +106,49 @@ printf_ui() {
     printf "$format" "$@"
 }
 
-# Refresh only sessions marked as piux, preserving other users of a shared server.
+# Keep a printable key typed immediately after Esc for the next interaction.
+read_ui_key() {
+    local suffix='' tail=''
+    local -a options=(-rsn1)
+    PIMUX_KEY=''
+    if [[ -n ${PIMUX_PENDING_KEY:-} ]]; then
+        PIMUX_KEY=$PIMUX_PENDING_KEY; PIMUX_PENDING_KEY=''
+    else
+        [[ $# == 0 ]] || options+=(-t "$1")
+        IFS= read "${options[@]}" PIMUX_KEY || return
+    fi
+    if [[ $PIMUX_KEY == $'\e' ]]; then
+        IFS= read -rsn1 -t 0.05 suffix || true
+        if [[ $suffix == '[' || $suffix == O ]]; then
+            IFS= read -rsn1 -t 0.05 tail || true
+            PIMUX_KEY+="$suffix$tail"
+            if [[ $PIMUX_KEY == $'\e[5' || $PIMUX_KEY == $'\e[6' ]]; then
+                tail=''; IFS= read -rsn1 -t 0.05 tail || true; PIMUX_KEY+=$tail
+            fi
+        else
+            PIMUX_PENDING_KEY=$suffix
+        fi
+    fi
+}
+
+# Refresh only sessions marked as pimux, preserving other users of a shared server.
 refresh_language() (
     local sid launcher
     update_server_language() {
         while IFS=$'\t' read -r sid launcher; do
             [[ -n $sid && -n $launcher ]] || continue
-            tmux set-option -t "$sid" @piux_language "$PIUX_LANGUAGE"
-        done < <(tmux list-sessions -F $'#{session_id}\t#{@piux_launcher}' 2>/dev/null || true)
+            tmux set-option -t "$sid" @pimux_language "$PIMUX_LANGUAGE"
+        done < <(tmux list-sessions -F $'#{session_id}\t#{@pimux_launcher}' 2>/dev/null || true)
     }
     update_server_language
-    if [[ -f ${PIUX_RUNTIME_FILE:-$HOME/.config/piux/runtime.conf} ]]; then
+    if [[ -f ${PIMUX_RUNTIME_FILE:-$HOME/.config/pimux/runtime.conf} ]]; then
         configure_runtime; update_server_language
         configure_runtime true; update_server_language
     fi
 )
 
 save_language() (
-    local value=$1 file=${PIUX_LANGUAGE_FILE:-$HOME/.config/piux/language} temporary
+    local value=$1 file=${PIMUX_LANGUAGE_FILE:-$HOME/.config/pimux/language} temporary
     case $value in en|zh) ;; *) return 2 ;; esac
     mkdir -p -- "$(dirname -- "$file")"
     exec 9>"${file}.lock"
@@ -122,14 +156,14 @@ save_language() (
     temporary=$(mktemp "${file}.new.XXXXXX")
     printf '%s\n' "$value" > "$temporary"
     mv -- "$temporary" "$file"
-    PIUX_LANGUAGE=$value
+    PIMUX_LANGUAGE=$value
     refresh_language
 )
 
 menu_action() {
     local client=$1 action=$2 background=${3:-true} socket command
     socket=$(tmux display-message -p '#{socket_path}')
-    command="$(shell_quote "$PIUX_LAUNCHER") __client $(shell_quote "$socket") $(shell_quote "$client") $(shell_quote "$action")"
+    command="$(shell_quote "$PIMUX_LAUNCHER") __client $(shell_quote "$socket") $(shell_quote "$client") $(shell_quote "$action")"
     if [[ $background == true ]]; then printf 'run-shell -b '; else printf 'run-shell '; fi
     shell_quote "$command"
 }
@@ -138,11 +172,12 @@ show_menu() {
     local client=$1 target rename
     target=$(client_session "$client")
     rename="command-prompt -p $(shell_quote "$(tr_ui '窗口名称：')") -I #{q:window_name} \"rename-window -- '%%'\""
-    tmux display-menu -c "$client" -t "$target:" -T "#[fg=#b7a1e8]piux · $(tr_ui '工作终端')" -x C -y C \
+    tmux display-menu -c "$client" -t "$target:" -T "#[fg=#b7a1e8]pimux · $(tr_ui '工作终端')" -x C -y C \
         "$(tr_ui '新建窗口')" c 'new-window -n shell -c #{q:pane_current_path}' \
         "$(tr_ui '重命名窗口')" , "$rename" \
         "$(tr_ui '完整目录路径')" P "$(menu_action "$client" path false)" \
         "$(tr_ui '管理会话 / 窗口')" s "$(menu_action "$client" manager)" \
+        "$(tr_ui '显卡详情')" g "$(menu_action "$client" gpu)" \
         '' \
         "$(tr_ui '左右分屏')" '|' 'split-window -h -c #{q:pane_current_path}' \
         "$(tr_ui '上下分屏')" '-' 'split-window -v -c #{q:pane_current_path}' \
@@ -155,7 +190,7 @@ show_menu() {
 
 show_language_menu() {
     local client=$1 zh='简体中文' en='English'
-    if [[ $PIUX_LANGUAGE == zh ]]; then zh="* $zh"; else en="* $en"; fi
+    if [[ $PIMUX_LANGUAGE == zh ]]; then zh="* $zh"; else en="* $en"; fi
     tmux display-menu -c "$client" -T 'Language / 语言' -x C -y C \
         "$en" e "$(menu_action "$client" lang-en)" \
         "$zh" z "$(menu_action "$client" lang-zh)"
@@ -165,8 +200,8 @@ shortcut_help() {
     local line prefix description
     printf '%s\n\n' "$(tr_ui '先按 Ctrl-a 并松开，再按下列操作键；数字键直接切窗口。')"
     while IFS= read -r line; do
-        [[ $line == *'piux: '* ]] || continue
-        prefix=${line%%piux:*}; description=${line#*piux: }
+        [[ $line == *'pimux: '* ]] || continue
+        prefix=${line%%pimux:*}; description=${line#*pimux: }
         printf '%s%s\n' "$prefix" "$(tr_ui "$description")"
     done < <(tmux list-keys -N -T prefix)
 }
