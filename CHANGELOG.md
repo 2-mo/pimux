@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.1
+
+- Preserve full GPU process paths and show visible launch commands and working directories so Python tasks can be identified.
+- Wrap long details and scroll the complete process list with the mouse wheel or Page Up/Down; keep arrow keys for GPU selection.
+- Tolerate processes exiting or denying access without interrupting GPU monitoring.
+
 ## 0.4.0
 
 - Bundle a standalone version of the pi gpu dashboard: compact GPU cards, utilization curves, memory bars and optional temperature, power and process details.

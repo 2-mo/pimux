@@ -1,6 +1,6 @@
 [project]
 name = "pimux-dev"
-version = "0.4.0"
+version = "0.4.1"
 description = "GPU dashboard runtime and development checks for PiMux"
 requires-python = ">=3.10"
 dependencies = [

@@ -199,15 +199,37 @@ def test_process_query_is_bounded_and_selected(monkeypatch, output):
         return subprocess.CompletedProcess(args, 0, output, "")
 
     monkeypatch.setattr(gpu.subprocess, "run", run)
+    monkeypatch.setattr(gpu, "_process_details", lambda pid: (None, None))
     processes = gpu.query_processes(2)
     assert len(calls) == 1
     args, kwargs = calls[0]
     assert args[1:3] == ["-i", "2"]
     assert kwargs["timeout"] == 3
     if output:
-        assert processes == [gpu.GPUProcess(123, "python", 1024), gpu.GPUProcess(456, "worker", None)]
+        assert processes == [gpu.GPUProcess(123, "/env/bin/python", 1024), gpu.GPUProcess(456, "worker", None)]
     else:
         assert processes == []
+
+
+def test_process_details_preserve_command_arguments_and_tolerate_invisible_processes(tmp_path, monkeypatch):
+    import shlex
+
+    directory = tmp_path / "123"
+    directory.mkdir()
+    argv = ["/env/bin/python", "train.py", "--data", "/data/my dataset", ""]
+    (directory / "cmdline").write_bytes(b"\0".join(arg.encode() for arg in argv) + b"\0")
+    (directory / "cwd").symlink_to(tmp_path)
+    monkeypatch.setattr(gpu, "Path", lambda path: tmp_path / path.removeprefix("/proc/"))
+    command, cwd = gpu._process_details(123)
+    assert shlex.split(command) == argv
+    assert cwd == str(tmp_path)
+    assert gpu._process_details(456) == (None, None)
+
+    def denied(*args):
+        raise PermissionError()
+
+    monkeypatch.setattr(type(directory), "read_bytes", denied)
+    assert gpu._process_details(123) == (None, str(tmp_path))
 
 
 def test_selected_process_refresh_and_failure_are_independent(monkeypatch):
@@ -263,4 +285,51 @@ def test_details_fit_height_and_keep_selected_card_visible(width, height):
     text = "\n".join("".join(segment.text for segment in line) for line in lines)
     assert "›GPU 7" in text
     assert monitor.page_size >= monitor.columns
+
+
+def test_long_process_details_wrap_and_scroll_without_losing_paths():
+    from rich.console import Console
+    from types import SimpleNamespace
+
+    monitor = gpu.Monitor()
+    monitor.gpus = gpu.parse_gpus(CSV)
+    monitor.details = True
+    monitor.process_gpu = 0
+    monitor.processes = [
+        gpu.GPUProcess(i, f"/long/environment/name-{i}/bin/python", 1024,
+                       f"python /research/实验项目/experiment-{i}/train.py --batch-size 32",
+                       f"/research/project-{i}/working-directory")
+        for i in range(6)
+    ]
+    console = Console(width=40)
+    seen = {}
+    while True:
+        lines = console.render_lines(monitor.render(40, 12), console.options, pad=False)
+        assert len(lines) <= 12
+        page = "".join("".join(segment.text for line in lines for segment in line).split())
+        details = monitor._detail_lines(40)
+        for index in range(monitor.detail_offset,
+                           min(len(details), monitor.detail_offset + monitor.detail_page_size)):
+            assert "".join(details[index].plain.split()) in page
+            seen[index] = details[index].plain
+        previous = monitor.detail_offset
+        monitor.on_key("KEY_PGDOWN")
+        if monitor.detail_offset == previous:
+            break
+    assert len(seen) == monitor.detail_total
+    text = "".join("".join(seen[index] for index in sorted(seen)).split())
+    for process in monitor.processes:
+        for value in (process.name, process.command, process.cwd):
+            assert "".join(value.split()) in text
+    assert monitor.selected == 0
+    monitor.on_key("KEY_HOME")
+    assert monitor.detail_offset == 0
+    monitor.on_key(SimpleNamespace(name="MOUSE_SCROLL_DOWN"))
+    assert monitor.detail_offset == 3
+    monitor.on_key(SimpleNamespace(name="MOUSE_SCROLL_UP"))
+    assert monitor.detail_offset == 0
+    monitor.on_key("KEY_END")
+    monitor.on_key("KEY_RIGHT")
+    assert monitor.selected == 1
+    assert monitor.detail_offset == 0
 
