@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # pimux-managed: standalone personal terminal workspace.
 set -euo pipefail
-PIMUX_VERSION=0.3.0
+PIMUX_VERSION=0.3.1
 PIMUX_COMMAND=()
 PIMUX_TARGET_SOCKET=''
 PIMUX_SHARED_SERVER=false
@@ -567,8 +567,10 @@ main() {
                     tmux display-message -p -t "$sid:" '#{pane_current_path}' ;;
                 copy-path)
                     sid=$(client_session "$client")
-                    local path
-                    path=$(tmux display-message -p -t "$sid:" '#{pane_current_path}')
+                    local path pid
+                    pid=$(tmux display-message -p -t "$sid:" '#{pane_pid}')
+                    # Some tmux versions escape display output, including literal $.
+                    path=$(readlink -- "/proc/$pid/cwd")
                     tmux set-buffer -w -t "$client" -- "$path"
                     tmux display-message -c "$client" "$(tr_ui '路径已复制到 tmux，并发送到终端剪贴板。')" ;;
                 pin)

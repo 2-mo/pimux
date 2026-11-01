@@ -1105,16 +1105,19 @@ def test_copy_path_targets_only_requesting_client(tmp_path, server):
                     outputs[index].extend(os.read(master, 65536))
 
         deadline = time.monotonic() + 8
-        while len(tmux('list-clients', '-F', '#{client_name}').splitlines()) != 2 and time.monotonic() < deadline:
+        # Registration can precede terminal setup; wait for both rendered UIs.
+        while not all(b'menu' in output for output in outputs) and time.monotonic() < deadline:
             drain()
+        assert all(b'menu' in output for output in outputs), outputs
         os.write(clients[0][1], b'\x01y')
         encoded = base64.b64encode(str(directory).encode())
+        deadline = time.monotonic() + 8
         while encoded not in outputs[0] and time.monotonic() < deadline:
             drain()
-        assert encoded in outputs[0] and b']52;' in outputs[0]
+        assert tmux('show-buffer') == str(directory)
+        assert encoded in outputs[0] and b']52;' in outputs[0], outputs[0].decode(errors='replace')
         drain()
         assert encoded not in outputs[1]
-        assert tmux('show-buffer') == str(directory)
         assert tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid}') == panes
     finally:
         for process, master, slave in clients:
