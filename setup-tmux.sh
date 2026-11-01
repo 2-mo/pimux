@@ -31,7 +31,29 @@ install_asset() {
     mv -- "$temporary" "$destination"
 }
 
-# Only managed files are replaced; user configuration and system tmux stay intact.
+install_command_path() {
+    local target_home=$1 file login_file=.profile
+    local line='case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac # pimux: command path'
+    local -a files=(.bashrc)
+    if [[ -f $target_home/.bash_profile ]]; then login_file=.bash_profile
+    elif [[ -f $target_home/.bash_login ]]; then login_file=.bash_login
+    fi
+    files+=("$login_file")
+    if [[ ${SHELL:-} == */zsh || -e $target_home/.zshrc || -e $target_home/.zprofile ]]; then
+        files+=(.zshrc .zprofile)
+    fi
+    for file in "${files[@]}"; do
+        file="$target_home/$file"
+        if [[ -f $file ]]; then
+            grep -Fxq -- "$line" "$file" && continue
+            backup_file "$file"
+        fi
+        # Append through existing symlinks, keeping user content and permissions.
+        printf '\n%s\n' "$line" >> "$file"
+    done
+}
+
+# Replace managed assets and add only the standard user command directory to PATH.
 install_files() (
     local target_home=$1 source_dir=$2 config_dir file
     config_dir="$target_home/.config/pimux"
@@ -44,6 +66,7 @@ install_files() (
     for file in ui.bash manager.bash gpu.bash shell.bash bashrc starship.toml uninstall.sh; do
         install_asset "$source_dir/$file" "$config_dir/$file" 644
     done
+    install_command_path "$target_home"
 )
 
 install_starship() (
@@ -106,7 +129,11 @@ main() {
     install_starship
     install_files "$HOME" "$PIMUX_SOURCE_DIR"
     "$HOME/.local/bin/pimux" reload
-    printf '\nReady. Open your terminal workspace:\n  %s/.local/bin/pimux\n' "$HOME"
+    printf '\nReady. Open your terminal workspace:\n  pimux\n'
+    case ":$PATH:" in
+        *":$HOME/.local/bin:"*) ;;
+        *) printf 'For this terminal, run: export PATH="$HOME/.local/bin:$PATH"\nNew Bash and Zsh terminals are configured automatically.\n' ;;
+    esac
     printf 'Theme, prompt and GPU indicators are enabled automatically. No font installation is required.\n'
 }
 

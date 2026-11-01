@@ -24,17 +24,36 @@ def install(home, function="install_files"):
     )
 
 
-def test_install_preserves_dotfiles_and_ships_complete_theme(tmp_path):
+def test_install_exposes_short_command_and_preserves_user_settings(tmp_path):
     home = tmp_path / 'personal "terminal" $dir'
     home.mkdir()
     dotfiles = {'.tmux.conf': '# personal tmux\n', '.bashrc': '# personal shell\n'}
     for name, value in dotfiles.items():
         (home / name).write_text(value)
+    profile = home / 'personal-profile'
+    profile.write_text('# personal login shell\n')
+    (home / '.bash_profile').symlink_to(profile)
+    (home / '.zshrc').write_text('# personal zsh\n')
     for _ in range(2):
         result = install(home)
         assert result.returncode == 0, result.stderr
-        for name, value in dotfiles.items():
-            assert (home / name).read_text() == value
+        assert (home / '.tmux.conf').read_text() == dotfiles['.tmux.conf']
+        assert (home / '.bashrc').read_text().startswith(dotfiles['.bashrc'])
+        assert (home / '.bash_profile').is_symlink()
+        assert profile.read_text().startswith('# personal login shell\n')
+        # Simulate a new user's shell with no ~/.local/bin in its inherited PATH.
+        for file in ('.bashrc', '.bash_profile', '.zshrc', '.zprofile'):
+            result = subprocess.run(
+                ['bash', '-c', 'source "$1"; source "$1"; command -v pimux; printf "%s" "$PATH"',
+                 'test', str(home / file)],
+                env={**os.environ, 'HOME': str(home), 'PATH': '/usr/bin:/bin'},
+                text=True, capture_output=True, check=True,
+            )
+            command, path = result.stdout.split('\n')
+            assert command == str(home / '.local/bin/pimux')
+            assert path.split(':').count(str(home / '.local/bin')) == 1
+    assert not (home / '.profile').exists()  # Bash already uses .bash_profile.
+    assert len(list(home.glob('.bashrc.pimux-backup.*'))) == 1
     assert os.access(home / '.local/bin/pimux', os.X_OK)
     config = home / '.config/pimux'
     for file in ('tmux.conf', 'bashrc', 'shell.bash', 'starship.toml', 'gpu.bash'):
@@ -312,6 +331,58 @@ def test_runtime_routes_new_and_system_servers_separately(server):
         assert tmux("list-panes", "-a", "-F", "#{pane_id} #{pane_pid}") == before
     finally:
         tmux("-L", "pimux-3.8", "kill-server")
+
+
+def test_shared_server_reload_and_short_command_preserve_other_sessions(server):
+    env, tmux = server
+    Path(env['PIMUX_RUNTIME_FILE']).write_text(
+        f"{shutil.which('tmux')}\npimux\n{shutil.which('tmux')}\n"
+    )
+    tmux('new-session', '-d', '-s', 'personal')
+    tmux('set-option', '-t', 'seed', '@pimux_launcher', str(SOURCE / 'pimux'))
+    tmux('bind-key', '-r', 'g', 'set-option', '@original_gpu_key', 'used')
+    tmux('unbind-key', 'h')
+    global_before = tmux('show-options', '-g')
+    personal_before = tmux('show-options', '-t', 'personal')
+    panes_before = tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid}')
+    env['TMUX'] = tmux('display-message', '-p', '-t', 'seed', '#{socket_path},#{pid},0')
+    env['TMUX_PANE'] = tmux('display-message', '-p', '-t', 'seed', '#{pane_id}')
+    # No --system is needed inside a managed workspace on the older server.
+    listing = subprocess.run([str(SOURCE / 'pimux'), 'ls'], env=env,
+                             capture_output=True, text=True, check=True)
+    assert 'seed' in listing.stdout and 'personal' in listing.stdout
+    for _ in range(2):
+        subprocess.run([str(SOURCE / 'pimux'), 'reload'], env=env,
+                       capture_output=True, text=True, check=True)
+        assert tmux('show-options', '-gqv', '@pimux_fallback_gpu') == 'set-option @original_gpu_key used'
+        assert tmux('show-options', '-gqv', '@pimux_fallback_menu') == ''
+    globals_after = '\n'.join(line for line in tmux('show-options', '-g').splitlines()
+                              if not line.startswith('@pimux_fallback_'))
+    assert globals_after == global_before
+    assert tmux('show-options', '-t', 'personal') == personal_before
+    assert tmux('show-options', '-qv', '-t', 'seed', 'prefix') == 'C-a'
+    assert tmux('show-options', '-qv', '-t', 'seed', 'status-interval') == '5'
+    assert tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid}') == panes_before
+
+    # The same physical keys retain their original behavior in an ordinary session.
+    master, slave = os.openpty()
+    client = subprocess.Popen(['tmux', 'attach-session', '-t', 'personal'], env=env,
+                              stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
+    try:
+        deadline = time.monotonic() + 5
+        while not tmux('list-clients', '-F', '#{client_name}') and time.monotonic() < deadline:
+            time.sleep(.05)
+        os.write(master, b'\x02g')
+        while time.monotonic() < deadline:
+            if tmux('show-options', '-qv', '-t', 'personal', '@original_gpu_key') == 'used':
+                break
+            time.sleep(.05)
+        assert tmux('show-options', '-qv', '-t', 'personal', '@original_gpu_key') == 'used'
+    finally:
+        client.terminate()
+        client.wait(timeout=5)
+        os.close(master)
+        os.close(slave)
 
 
 def test_cross_server_entry_refuses_before_creating_session(server):
