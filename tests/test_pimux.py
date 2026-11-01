@@ -895,6 +895,8 @@ def test_gpu_mouse_wheel_scrolls_and_restores_terminal(tmp_path, server, exit_wi
 
     env, _ = server
     env['NO_COLOR'] = '1'  # Disabling colors must not disable mouse input.
+    env.pop('TERM_PROGRAM', None)
+    env.pop('TERM_PROGRAM_VERSION', None)
     bindir = tmp_path / 'gpu-bin'
     bindir.mkdir()
     smi = bindir / 'nvidia-smi'
@@ -907,8 +909,10 @@ def test_gpu_mouse_wheel_scrolls_and_restores_terminal(tmp_path, server, exit_wi
     process = subprocess.Popen([str(SOURCE / 'pimux'), '__gpu'], env=env,
                                stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
     output = bytearray()
+    queries = bytearray()
 
     def wait_for(value):
+        nonlocal queries
         deadline = time.monotonic() + 8
         while time.monotonic() < deadline:
             if value in output:
@@ -916,10 +920,21 @@ def test_gpu_mouse_wheel_scrolls_and_restores_terminal(tmp_path, server, exit_wi
             if select.select([master], [], [], .05)[0]:
                 data = os.read(master, 65536)
                 output.extend(data)
-                # Respond as a terminal with mouse reporting initially disabled.
-                for mode in (1000, 1006):
-                    if f'\x1b[?{mode}$p'.encode() in data:
-                        os.write(master, f'\x1b[?{mode};2$y'.encode())
+                # Support terminal discovery, including requests split across reads.
+                queries.extend(data)
+                consumed = 0
+                for match in re.finditer(rb'\x1b(?:P\+q([0-9A-Fa-f;]+)\x1b\\|\[6n|\[>q|\[\?(1000|1006)\$p)', queries):
+                    if match.group(1):
+                        reply = b'\x1bP0+r' + match.group(1) + b'\x1b\\'
+                    elif match.group(2):
+                        reply = b'\x1b[?' + match.group(2) + b';2$y'
+                    elif match[0] == b'\x1b[6n':
+                        reply = b'\x1b[1;1R'
+                    else:
+                        reply = b'\x1bP>|XTerm(400)\x1b\\'
+                    os.write(master, reply)
+                    consumed = match.end()
+                queries = queries[consumed:][-128:]
         pytest.fail(output.decode(errors='replace')[-2000:])
 
     try:
