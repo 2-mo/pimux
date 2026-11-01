@@ -23,6 +23,28 @@ declare -A PIMUX_EN=(
     ['重命名窗口']='Rename window'
     ['窗口名称：']='Window name:'
     ['完整目录路径']='Full directory path'
+    ['复制当前目录路径']='Copy current directory path'
+    ['路径已复制到 tmux，并发送到终端剪贴板。']='Path copied to tmux and sent to the terminal clipboard.'
+    ['置顶当前会话']='Pin this session'
+    ['取消置顶当前会话']='Unpin this session'
+    ['无法保存置顶设置。']='Could not save pinned sessions.'
+    ['网络代理']='Network proxy'
+    ['启用']='Enabled'
+    ['停用']='Disabled'
+    ['继承启动环境']='Inherit startup environment'
+    ['地址']='Address'
+    ['当前终端传入的环境：']='Environment inherited from this terminal:'
+    ['代理地址需以 http://、https://、socks5:// 或 socks5h:// 开头，且不能含空白。']='Use an http://, https://, socks5:// or socks5h:// proxy URL without whitespace.'
+    ['请先设置代理地址。']='Set a proxy address first.'
+    ['代理配置无效，请重新设置。']='Invalid proxy configuration; set it again.'
+    ['已保存；新终端自动应用，已集成的 PiMux shell 在下次提示符应用。']='Saved. New terminals apply it automatically; integrated PiMux shells apply it at the next prompt.'
+    ['仅影响 PiMux shell；运行中的程序保持原环境。']='Applies to PiMux shells; running programs keep their environment.'
+    ['已有 shell 回到提示符后按 Enter 生效；升级前的旧 shell 请新开窗口。']='At an existing prompt, press Enter to apply. For shells from before this upgrade, open a new window.'
+    ['e 设置地址  o 启用  d 停用  i 继承环境  q 返回']='e set address  o enable  d disable  i inherit  q back'
+    ['代理地址（清空取消）：']='Proxy URL (clear to cancel):'
+    ['当前 shell 配有代理时显示青色 ⛓︎，否则隐藏。']='A cyan ⛓︎ appears when this shell has a proxy configured; otherwise it stays hidden.'
+    [' / 搜索  Enter 进入  p 置顶  q 返回']=' / search  Enter open  p pin  q back'
+    [' / 搜索  ↑↓ 选择  ←→ 展开  Enter 进入  p 置顶  n 新建  x 关闭  q 返回']=' / search  Arrows select/expand  Enter open  p pin  n new  x close  q back'
     ['管理会话 / 窗口']='Manage sessions / windows'
     ['左右分屏']='Split left / right'
     ['上下分屏']='Split top / bottom'
@@ -192,14 +214,19 @@ menu_action() {
 }
 
 show_menu() {
-    local client=$1 target rename
+    local client=$1 target rename pin_label='置顶当前会话' name
     target=$(client_session "$client")
+    load_manager
+    name=$(tmux display-message -p -t "$(logical_session "$target"):" '#{session_name}')
+    if session_pin_names | grep -Fxq -- "$name"; then pin_label='取消置顶当前会话'; fi
     rename="command-prompt -p $(shell_quote "$(tr_ui '窗口名称：')") -I #{q:window_name} \"rename-window -- '%%'\""
     tmux display-menu -c "$client" -t "$target:" -T "#[fg=#b7a1e8]pimux · $(tr_ui '工作终端')" -x C -y C \
         "$(tr_ui '新建窗口')" c 'new-window -n shell -c #{q:pane_current_path}' \
         "$(tr_ui '重命名窗口')" , "$rename" \
         "$(tr_ui '完整目录路径')" P "$(menu_action "$client" path false)" \
+        "$(tr_ui '复制当前目录路径')" y "$(menu_action "$client" copy-path)" \
         "$(tr_ui '管理会话 / 窗口')" s "$(menu_action "$client" manager)" \
+        "$(tr_ui "$pin_label")" p "$(menu_action "$client" pin)" \
         "$(tr_ui '显卡详情')" g "$(menu_action "$client" gpu)" \
         '' \
         "$(tr_ui '左右分屏')" '|' 'split-window -h -c #{q:pane_current_path}' \
@@ -209,7 +236,8 @@ show_menu() {
         'Language / 语言' l "$(menu_action "$client" language)" \
         "$(tr_ui '离开，保留任务')" d 'detach-client' \
         "$(tr_ui '快捷键帮助')" / "$(menu_action "$client" help false)" \
-        "$(tr_ui '更新 PiMux')" u "$(menu_action "$client" update)"
+        "$(tr_ui '更新 PiMux')" u "$(menu_action "$client" update)" \
+        "$(tr_ui '网络代理')" o "$(menu_action "$client" proxy)"
 }
 
 show_language_menu() {

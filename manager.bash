@@ -1,11 +1,40 @@
 # pimux-managed: interactive manager, sourced by the standalone Bash launcher.
 # Run outside application panes; inside tmux this lives in a client-local popup.
+session_pin_names() {
+    local file=${PIMUX_PINS_FILE:-$HOME/.config/pimux/pinned-sessions} socket name
+    [[ -f $file ]] || return 0
+    while IFS=$'\t' read -r socket name; do
+        [[ $socket != "$PIMUX_TARGET_SOCKET" ]] || printf '%s\n' "$name"
+    done < "$file"
+}
+
+toggle_session_pin() (
+    local target=$1 file=${PIMUX_PINS_FILE:-$HOME/.config/pimux/pinned-sessions}
+    local name socket saved temporary found=false
+    target=$(logical_session "$target")
+    name=$(tmux display-message -p -t "$target:" '#{session_name}') || return
+    [[ ! $name =~ [[:cntrl:]] ]] || return 1
+    mkdir -p -- "$(dirname -- "$file")"
+    exec 9>"${file}.lock"
+    flock 9
+    temporary=$(mktemp "${file}.new.XXXXXX")
+    trap 'rm -f -- "$temporary"' EXIT
+    if [[ -f $file ]]; then
+        while IFS=$'\t' read -r socket saved; do
+            if [[ $socket == "$PIMUX_TARGET_SOCKET" && $saved == "$name" ]]; then found=true
+            else printf '%s\t%s\n' "$socket" "$saved" >> "$temporary"; fi
+        done < "$file"
+    fi
+    [[ $found == true ]] || printf '%s\t%s\n' "$PIMUX_TARGET_SOCKET" "$name" >> "$temporary"
+    mv -- "$temporary" "$file"
+)
+
 manager() (
     local client=${1:-} expand_current=${2:-} selected=0 offset=0 rows cols visible
     local sid wid label key answer name current='' error='' i count root resized=false
-    local query='' searching=false candidate suggestion
-    local -a roots=() windows=() labels=()
-    local -A expanded=()
+    local query='' searching=false candidate suggestion current_window=''
+    local -a roots=() windows=() labels=() pinned_ids=() other_ids=()
+    local -A expanded=() pinned=() names=()
     if [[ -n $client ]]; then
         current=$(logical_session "$(client_session "$client")")
         [[ $expand_current != windows ]] || expanded[$current]=1
@@ -17,12 +46,20 @@ manager() (
     printf '\033[?1049h\033[?25l\033[?7l\033[?1000h\033[?1006h'
     while :; do
         load_language
-        roots=(); windows=(); labels=()
+        pinned=(); names=(); pinned_ids=(); other_ids=()
+        while IFS= read -r name; do [[ -z $name ]] || pinned[$name]=1; done < <(session_pin_names)
         while read -r sid; do
-            [[ -n $sid ]] || continue
+            name=$(tmux display-message -p -t "$sid:" '#{session_name}') || continue
+            names[$sid]=$name
+            if [[ ${pinned[$name]:-} == 1 ]]; then pinned_ids+=("$sid")
+            else other_ids+=("$sid"); fi
+        done < <(logical_sessions)
+        roots=(); windows=(); labels=()
+        for sid in "${pinned_ids[@]}" "${other_ids[@]}"; do
+            name=${names[$sid]}
             label=$(tmux display-message -p -t "$sid:" "#{session_name}  (#{session_windows} $(tr_ui '窗口'))") || continue
+            [[ ${pinned[$name]:-} != 1 ]] || label+=' *'
             if [[ -n $query ]]; then
-                name=$(tmux display-message -p -t "$sid:" '#{session_name}')
                 while IFS=$'\t' read -r wid label; do
                     candidate="$name / $label"
                     [[ ${candidate,,} == *"${query,,}"* ]] || continue
@@ -39,13 +76,13 @@ manager() (
             else
                 labels+=("> $label")
             fi
-        done < <(logical_sessions)
+        done
         count=${#roots[@]}
         if [[ -n $current ]]; then
             for ((i=0; i<count; i++)); do
-                if [[ ${roots[i]} == "$current" ]]; then selected=$i; break; fi
+                if [[ ${roots[i]} == "$current" && ${windows[i]} == "$current_window" ]]; then selected=$i; break; fi
             done
-            current=''
+            current=''; current_window=''
         fi
         (( selected < count )) || selected=$((count > 0 ? count - 1 : 0))
         read -r rows cols < <(stty size)
@@ -70,8 +107,8 @@ manager() (
             if (( cols < 80 )); then label=$(tr_ui ' 输入筛选  Enter 进入  Esc 清除')
             else label=$(tr_ui ' 输入筛选  ↑↓ 选择  Enter 进入  Backspace 删除  Esc 清除'); fi
         else
-            if (( cols < 80 )); then label=$(tr_ui ' / 搜索  Enter 进入  n 新建  q 返回')
-            else label=$(tr_ui ' / 搜索  ↑↓ 选择  ←→ 展开  Enter 进入  n 新建  x 关闭  q 返回'); fi
+            if (( cols < 80 )); then label=$(tr_ui ' / 搜索  Enter 进入  p 置顶  q 返回')
+            else label=$(tr_ui ' / 搜索  ↑↓ 选择  ←→ 展开  Enter 进入  p 置顶  n 新建  x 关闭  q 返回'); fi
         fi
         printf '\033[%s;1H\033[38;2;255;175;95m%s\033[0m' "$((rows > 3 ? rows - 2 : 1))" "$label"
         if (( cols < 80 )); then label=$(tr_ui ' 点击进入  滚轮翻动')
@@ -127,6 +164,12 @@ manager() (
             $'\e[C'|$'\eOC'|l) (( count == 0 )) || expanded[${roots[selected]}]=1 ;;
             $'\e[D'|$'\eOD'|h)
                 if (( count > 0 )); then current=${roots[selected]}; expanded[$current]=0; fi
+                ;;
+            p)
+                (( count > 0 )) || continue
+                if toggle_session_pin "${roots[selected]}"; then
+                    current=${roots[selected]}; current_window=${windows[selected]}
+                else error=$(tr_ui '无法保存置顶设置。'); fi
                 ;;
             n)
                 printf '\033[?1000l\033[?1006l\033[%s;1H\033[2K\033[?25h' "$rows"

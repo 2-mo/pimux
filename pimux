@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # pimux-managed: standalone personal terminal workspace.
 set -euo pipefail
-PIMUX_VERSION=0.2.1
+PIMUX_VERSION=0.3.0
 PIMUX_COMMAND=()
 PIMUX_TARGET_SOCKET=''
 PIMUX_SHARED_SERVER=false
@@ -73,6 +73,9 @@ pimux · Personal terminal
   pimux --version       Print the installed version
   pimux update          Install the latest release and reload live workspaces
   pimux gpu             Open live GPU details
+  pimux proxy           Show proxy settings and this terminal's proxy environment
+  pimux proxy set URL   Set and enable a proxy for PiMux shells
+  pimux proxy off       Disable the proxy; on enables it, reset inherits the environment
   pimux uninstall       Remove the launcher; keep settings and running tasks
 
 Maintenance:
@@ -99,6 +102,9 @@ pimux · 个人工作终端
   pimux --version       打印当前版本
   pimux update          更新到最新发布版，并重载正在使用的工作空间
   pimux gpu             查看实时显卡详情
+  pimux proxy           查看代理设置及当前终端的代理环境
+  pimux proxy set URL   设置并启用 PiMux shell 的代理
+  pimux proxy off       停用代理；on 重新启用，reset 恢复继承环境
   pimux uninstall       卸载命令入口，保留设置和运行中的任务
 
 维护命令：
@@ -268,7 +274,7 @@ install_shared_bindings() {
         note=${BASH_REMATCH[1]}; key=${BASH_REMATCH[2]}; command=${BASH_REMATCH[3]}
         case $key in
             s) action=manager ;; w) action=windows ;; h) action=menu ;;
-            /) action=help ;; g) action=gpu ;; r) action=reload ;; L) action=previous ;;
+            /) action=help ;; g) action=gpu ;; r) action=reload ;; L) action=previous ;; y) action=copy-path ;;
             *) continue ;;
         esac
         option="@pimux_fallback_$action"
@@ -491,6 +497,12 @@ load_gpu() {
     source "$file"
 }
 
+load_proxy() {
+    local file="$(dirname -- "$PIMUX_LAUNCHER")/proxy.bash"
+    [[ -f $file ]] || file="$HOME/.config/pimux/proxy.bash"
+    source "$file"
+}
+
 update_pimux() (
     local installer
     installer=$(mktemp)
@@ -519,6 +531,11 @@ main() {
         IFS= read -r _ || true
         return
     fi
+    if [[ ${1:-} == __proxy ]]; then
+        [[ $# == 1 ]] || return 2
+        load_proxy; pimux_proxy_view
+        return
+    fi
     # tmux bindings pass their exact client and socket; no default-server guessing.
     if [[ ${1:-} == __client || ${1:-} == __manager ]]; then
         [[ $# == 4 ]] || return 2
@@ -542,9 +559,22 @@ main() {
                 update)
                     tmux display-popup -E -c "$client" -w 90% -h 80% \
                         "$(shell_quote "$PIMUX_LAUNCHER") __update" ;;
+                proxy)
+                    tmux display-popup -E -c "$client" -w 90% -h 80% \
+                        "$(shell_quote "$PIMUX_LAUNCHER") __proxy" ;;
                 path)
                     sid=$(client_session "$client")
                     tmux display-message -p -t "$sid:" '#{pane_current_path}' ;;
+                copy-path)
+                    sid=$(client_session "$client")
+                    local path
+                    path=$(tmux display-message -p -t "$sid:" '#{pane_current_path}')
+                    tmux set-buffer -w -t "$client" -- "$path"
+                    tmux display-message -c "$client" "$(tr_ui '路径已复制到 tmux，并发送到终端剪贴板。')" ;;
+                pin)
+                    load_manager
+                    toggle_session_pin "$(client_session "$client")"
+                    show_menu "$client" ;;
                 previous)
                     sid=$(client_session "$client")
                     root=$(tmux show-options -qv -t "$sid" @pimux_previous)
@@ -566,6 +596,7 @@ main() {
     case ${1:-} in
         -V|--version) [[ $# == 1 ]] || return 2; printf 'pimux %s\n' "$PIMUX_VERSION"; return ;;
         update) [[ $# == 1 ]] || return 2; update_pimux; return ;;
+        proxy) shift; load_proxy; pimux_proxy_command "$@"; return ;;
         uninstall)
             [[ $# == 1 ]] || return 2
             local file="$(dirname -- "$PIMUX_LAUNCHER")/uninstall.sh"
