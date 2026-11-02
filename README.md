@@ -4,7 +4,7 @@ A tmux workspace for research and project development.
 
 [简体中文](docs/README.zh-CN.md)
 
-![PiMux workspace: training, logs and a styled shell in split panes, with prefix-key hints and GPU activity](docs/screenshots/workspace.png)
+![PiMux workspace: training, logs and a styled shell in split panes, with the current directory, proxy status and GPU activity](docs/screenshots/workspace.png)
 
 ## Install · Linux
 

@@ -5,7 +5,7 @@
 - Unify the home screen and Ctrl-a h around a navigation tree: Workspace, Resources, Network and Settings, with built-in symbols and existing action keys.
 - Show menu and sessions side by side on wide screens; use Tab to switch areas on narrow screens. Support keyboard expansion and mouse selection.
 - Select IPs, gateways, CIDRs and MagicDNS names, then copy with y / Enter; Y copies an IP's subnet. Preserve scoped IPv6 addresses and target only the requesting terminal's clipboard.
-- Update the home screenshot and built-in help to match the new navigation.
+- Update home screenshots and help for tree navigation; show the default directory footer in the workspace preview.
 
 ## 0.7.0
 

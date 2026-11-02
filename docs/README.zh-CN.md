@@ -4,7 +4,7 @@
 
 [English](../README.md)
 
-![PiMux 工作区：训练、日志与终端分屏，底部显示前缀键提示和显卡活动](screenshots/workspace.png)
+![PiMux 工作区：训练、日志与终端分屏，底部显示当前目录、代理状态和显卡活动](screenshots/workspace.png)
 
 ## 安装 · Linux
 
