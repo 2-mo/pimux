@@ -841,8 +841,9 @@ def test_search_gpu_popup_and_reload_preserve_running_panes(tmp_path, server):
         view = tmux('list-clients', '-F', '#{session_id}')
         os.write(master, b'\x01s')
         wait_for(lambda: '会话管理'.encode() in output)
+        # Reach IP through the tree; keep the other direct tool shortcuts covered.
         for key, marker in [(b'e', '默认设置'.encode()), (b'o', 'PiMux 设置'.encode()), (b'g', b'GPU 0'),
-                            (b't', 'TCP 端口'.encode()), (b'i', 'IP 与网络'.encode()), (b'?', '快捷键'.encode())]:
+                            (b't', 'TCP 端口'.encode()), (b'\t' + b'\x1b[B' * 6 + b'\r', 'IP 与网络'.encode()), (b'?', '快捷键'.encode())]:
             output.clear()
             os.write(master, key)
             wait_for(lambda: marker in output)
@@ -953,16 +954,6 @@ manager
         pytest.fail(output.decode(errors='replace')[-2000:])
 
     try:
-        wait_for(b'seed')
-        # The same tree works beside the list and in the narrow Tab view.
-        output.clear()
-        os.write(master, b'\t' + b'\x1b[B' * 6 + b'\r')
-        wait_for('IP 与网络'.encode())
-        output.clear()
-        os.write(master, b'q')
-        wait_for('会话管理'.encode())
-        output.clear()
-        os.write(master, b'\t')
         wait_for(b'seed')
         os.write(master, f'\x1b[<0;{pane_x};4M\x1b[<0;{pane_x};4m'.encode())
         wait_for(b'mouse-04')
