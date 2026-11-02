@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # pimux-managed: standalone personal terminal workspace.
 set -euo pipefail
-PIMUX_VERSION=0.6.3
+PIMUX_VERSION=0.6.4
 PIMUX_COMMAND=()
 PIMUX_TARGET_SOCKET=''
 PIMUX_SHARED_SERVER=false
 PIMUX_LAUNCHER=$(readlink -f -- "${BASH_SOURCE[0]}")
-PIMUX_UI_DIR="$(dirname -- "$PIMUX_LAUNCHER")/lib"
+PIMUX_ROOT=$(dirname -- "$(dirname -- "$PIMUX_LAUNCHER")")
+PIMUX_UI_DIR="$PIMUX_ROOT/lib"
 [[ -f $PIMUX_UI_DIR/ui.bash ]] || PIMUX_UI_DIR="$HOME/.config/pimux"
 source "$PIMUX_UI_DIR/ui.bash"
 
@@ -19,7 +20,7 @@ tmux() {
 }
 
 theme_file() {
-    local file="$(dirname -- "$PIMUX_LAUNCHER")/config/tmux.conf"
+    local file="$PIMUX_ROOT/config/tmux.conf"
     [[ -f $file ]] || file="$HOME/.config/pimux/tmux.conf"
     printf '%s\n' "$file"
 }
@@ -669,7 +670,7 @@ main() {
             load_gpu; python_view environment "$@"; return ;;
         uninstall)
             [[ $# == 1 ]] || return 2
-            local file="$(dirname -- "$PIMUX_LAUNCHER")/scripts/uninstall.sh"
+            local file="$PIMUX_ROOT/scripts/uninstall.sh"
             [[ -f $file ]] || file="$HOME/.config/pimux/uninstall.sh"
             exec bash "$file" ;;
         -h|--help) [[ $# == 1 ]] || return 2; usage; return ;;

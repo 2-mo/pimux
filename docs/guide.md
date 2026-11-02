@@ -10,7 +10,7 @@ The installer verifies the release checksum, installs missing system dependencie
 
 The install command enables `pimux` in this terminal immediately. The installer also configures the command path for future Bash terminals and Zsh when present, preserving your existing settings and backing up changed startup files.
 
-Alternatively, download and extract `pimux-linux.tar.gz` from [Releases](https://github.com/2-mo/pimux/releases/latest), then run `bash pimux/setup-tmux.sh` and open a new terminal. The same installer updates an existing installation and backs up changed managed files.
+Alternatively, download and extract `pimux-linux.tar.gz` from [Releases](https://github.com/2-mo/pimux/releases/latest), then run `bash pimux/scripts/setup-tmux.sh` and open a new terminal. The same installer updates an existing installation and backs up changed managed files.
 
 ## Your workspace
 
@@ -150,7 +150,7 @@ Uninstall removes only the managed launcher. Your configuration, backups, shared
 
 Runtime and development dependencies use [uv](https://docs.astral.sh/uv/). The launcher is Bash; interactive views use Python 3.10+, Rich and Blessed. The installed Python environment is at `~/.local/share/pimux/venv`.
 
-Source layout: `lib/` holds runtime modules, `config/` holds themes, `scripts/` holds packaging and removal tools, and `docs/screenshots/` holds README captures. The root `pimux`, `install.sh` and `setup-tmux.sh` are the command and installation entry points.
+Source layout: `lib/` holds runtime modules, `config/` holds themes, `scripts/` holds packaging and removal tools, and `docs/screenshots/` holds README captures. `bin/pimux` is the source launcher; `scripts/setup-tmux.sh` installs a local checkout. The root `install.sh` is the stable public download entry. The translated quick start and changelog live in `docs/`.
 
 ```bash
 uv sync

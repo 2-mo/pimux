@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Install the complete personal terminal into the current user's home.
 set -euo pipefail
-PIMUX_SOURCE_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-source "$PIMUX_SOURCE_DIR/pimux"
+PIMUX_SOURCE_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+source "$PIMUX_SOURCE_DIR/bin/pimux"
 
 backup_file() {
     local path=$1 backup
@@ -61,7 +61,7 @@ install_files() (
     mkdir -p -- "$target_home/.local/bin" "$config_dir"
     exec 9>"$config_dir/install.lock"
     flock 9
-    install_asset "$source_dir/pimux" "$target_home/.local/bin/pimux" 755
+    install_asset "$source_dir/bin/pimux" "$target_home/.local/bin/pimux" 755
     install_asset "$source_dir/config/tmux.conf" "$config_dir/tmux.conf" 644
     install_asset "$source_dir/config/starship.toml" "$config_dir/starship.toml" 644
     install_asset "$source_dir/scripts/uninstall.sh" "$config_dir/uninstall.sh" 644
@@ -135,7 +135,7 @@ install_dependencies() {
 
 main() {
     if [[ $# != 0 ]]; then
-        printf 'Usage: bash setup-tmux.sh\nInstalls the terminal, complete theme and Starship prompt.\n'
+        printf 'Usage: bash scripts/setup-tmux.sh\nInstalls the terminal, complete theme and Starship prompt.\n'
         [[ $# == 1 && ( $1 == --help || $1 == -h ) ]]
         return
     fi

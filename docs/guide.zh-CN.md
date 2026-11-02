@@ -1,6 +1,6 @@
 # PiMux 使用说明
 
-[English](guide.md) · [快速开始](../README.zh-CN.md)
+[English](guide.md) · [快速开始](README.zh-CN.md)
 
 ![PiMux 工作空间示意](preview.svg)
 
@@ -10,7 +10,7 @@
 
 README 中的安装命令会让当前终端立即识别 `pimux`。安装器也会为之后打开的 Bash 终端、以及已有的 Zsh 配好命令路径，保留原有设置，修改启动文件前先备份。
 
-也可以从 [Releases](https://github.com/2-mo/pimux/releases/latest) 下载并解压 `pimux-linux.tar.gz`，运行 `bash pimux/setup-tmux.sh` 后打开新终端。更新时重新运行相同安装命令，已有的受管文件发生变化时先备份。
+也可以从 [Releases](https://github.com/2-mo/pimux/releases/latest) 下载并解压 `pimux-linux.tar.gz`，运行 `bash pimux/scripts/setup-tmux.sh` 后打开新终端。更新时重新运行相同安装命令，已有的受管文件发生变化时先备份。
 
 ## 默认就有
 
@@ -150,7 +150,7 @@ pimux uninstall
 
 运行和开发依赖使用 [uv](https://docs.astral.sh/uv/) 管理。入口是 Bash，交互界面使用 Python 3.10+、Rich 和 Blessed；安装后的 Python 环境位于 `~/.local/share/pimux/venv`。
 
-源码按职责分目录：`lib/` 放运行模块，`config/` 放主题配置，`scripts/` 放打包与卸载工具，`docs/screenshots/` 放 README 截图。根目录的 `pimux`、`install.sh`、`setup-tmux.sh` 是命令和安装入口。
+源码按职责分目录：`lib/` 放运行模块，`config/` 放主题配置，`scripts/` 放打包与卸载工具，`docs/screenshots/` 放 README 截图。`bin/pimux` 是源码入口，`scripts/setup-tmux.sh` 安装本地源码；根目录 `install.sh` 保留为稳定的下载入口。中文快速开始和更新记录也归入 `docs/`。
 
 ```bash
 uv sync

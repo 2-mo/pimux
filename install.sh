@@ -16,4 +16,7 @@ curl --fail --show-error --silent --location --proto '=https' --tlsv1.2 \
     "$release_url/SHA256SUMS" -o "$install_work/SHA256SUMS"
 (cd "$install_work" && sha256sum --check SHA256SUMS)
 tar --extract --gzip --no-same-owner --file "$install_work/pimux-linux.tar.gz" --directory "$install_work"
-bash "$install_work/pimux/setup-tmux.sh"
+installer="$install_work/pimux/scripts/setup-tmux.sh"
+# Keep installation working while the latest release still has the previous layout.
+[[ -f $installer ]] || installer="$install_work/pimux/setup-tmux.sh"
+bash "$installer"
