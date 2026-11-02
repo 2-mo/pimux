@@ -13,6 +13,132 @@ from rich.console import Console
 from inspect_ui import Document, text
 import ports
 import proxy_ui
+import network
+
+
+def network_sample():
+    interfaces = network.parse_interfaces([
+        {"ifname": "eth0", "flags": ["UP"], "link_type": "ether", "addr_info": [
+            {"family": "inet", "local": "10.0.40.23", "prefixlen": 24},
+            {"family": "inet", "local": "10.0.50.23", "prefixlen": 24},
+            {"family": "inet6", "local": "fd12:40::23", "prefixlen": 64}]},
+        {"ifname": "tailscale0", "flags": ["UP"], "operstate": "UNKNOWN", "addr_info": [
+            {"family": "inet", "local": "100.93.12.8", "prefixlen": 32},
+            {"family": "inet6", "local": "fd7a:115c:a1e0::8", "prefixlen": 128}]},
+        {"ifname": "wan0", "flags": ["UP"], "addr_info": [
+            {"family": "inet", "local": "100.65.2.3", "prefixlen": 24}]},
+        {"ifname": "lo", "flags": ["UP"], "link_type": "loopback", "addr_info": [
+            {"family": "inet", "local": "127.0.0.1", "prefixlen": 8}]},
+        {"ifname": "kube-ipvs0", "flags": ["UP"], "linkinfo": {"info_kind": "dummy"}, "addr_info": [
+            {"family": "inet", "local": "10.96.0.1", "prefixlen": 32}]},
+        {"ifname": "veth7", "flags": ["UP"], "linkinfo": {"info_kind": "veth"}, "addr_info": [
+            {"family": "inet6", "local": "fe80::42", "prefixlen": 64}]},
+    ])
+    routes = network.parse_routes([
+        {"dst": "default", "gateway": "10.0.40.1", "dev": "eth0"},
+        {"dst": "10.0.40.0/24", "dev": "eth0"},
+        {"dst": "10.0.50.0/24", "dev": "eth0"},
+        {"dst": "172.22.0.0/16", "dev": "tailscale0", "table": 52},
+        {"dst": "172.22.0.0/16", "dev": "eth0", "gateway": "10.0.40.2"},
+        {"dst": "100.93.12.99", "dev": "tailscale0", "table": 52},
+        {"dst": "10.0.40.23", "type": "local", "dev": "eth0", "table": "local"},
+    ], 4)
+    routes += network.parse_routes([
+        {"dst": "default", "gateway": "fd12:40::1", "dev": "eth0", "metric": 100},
+        {"dst": "fd12:40::/64", "dev": "eth0"},
+        {"dst": "fe80::/64", "dev": "veth7"},
+    ], 6)
+    return interfaces, routes, []
+
+
+def test_network_keeps_multiple_subnets_and_tailscale_routes_distinct(monkeypatch):
+    snapshot = network_sample()
+    monkeypatch.setattr(network, "read_local", lambda: snapshot)
+    monkeypatch.setattr(network, "read_tailscale", lambda: {
+        "name": "research.tail-demo.ts.net", "state": "Running",
+        "addresses": [network.ipaddress.ip_address("100.93.12.8"), network.ipaddress.ip_address("fd7a:115c:a1e0::8")],
+    })
+    monkeypatch.setattr(network.ProxyPanel, "refresh", lambda self: None)
+    view = network.NetworkView()
+    view.refresh()
+    content = "\n".join(line.plain for line in view.lines())
+    for value in ("10.0.40.23/24", "10.0.50.23/24", "10.0.40.0/24", "10.0.50.0/24",
+                  "fd12:40::/64", "100.93.12.8/32", "fd7a:115c:a1e0::8/128", "research.tail-demo.ts.net"):
+        assert value in content
+    assert content.count("100.93.12.8") == 1
+    assert "100.93.12.99" not in content
+    assert "10.96.0.1" not in content
+    assert "fe80::42" not in content
+    routes = [route for route in snapshot[1] if str(route.subnet) == "172.22.0.0/16"]
+    assert {(route.device, route.table) for route in routes} == {("tailscale0", "52"), ("eth0", "main")}
+    assert "Tailscale" not in next(block[0].plain for block in view.blocks if block[0].plain.startswith("wan0"))
+    view.query = "172.22"
+    content = "\n".join(line.plain for line in view.lines())
+    assert "172.22.0.0/16" in content and "10.0.50.0/24" not in content
+    view.query = ""
+    view.on_key("a")
+    content = "\n".join(line.plain for line in view.lines())
+    assert "10.96.0.1/32" in content and "127.0.0.1/8" in content
+    assert "fe80::42%veth7/64" in content
+    monkeypatch.setattr(network, "read_local", lambda: ([interface for interface in snapshot[0] if interface.name != "tailscale0"], snapshot[1], []))
+    view.refresh()
+    assert "100.93.12.8" in "\n".join(line.plain for line in view.lines())
+
+
+def test_network_public_lookup_is_manual_and_does_not_run_during_search(monkeypatch):
+    monkeypatch.setattr(network, "read_local", network_sample)
+    monkeypatch.setattr(network, "read_tailscale", lambda: None)
+    monkeypatch.setattr(network.ProxyPanel, "refresh", lambda self: None)
+    calls = []
+    def public_ip():
+        calls.append(True)
+        return "8.8.8.8"
+    monkeypatch.setattr(network, "query_public_ip", public_ip)
+    view = network.NetworkView()
+    view.refresh()
+    view.on_key("/")
+    view.on_key("p")
+    assert view.query == "p" and calls == []
+    view.on_key("KEY_ESCAPE")
+    view.on_key("p")
+    assert view.public == "8.8.8.8" and len(calls) == 1
+    view.refresh()
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("code,value,valid", [(0, "8.8.8.8", True), (0, "2001:4860:4860::8888", True),
+                                              (0, "100.93.12.8", False), (0, "<html>error</html>", False), (28, "", False)])
+def test_network_public_lookup_bypasses_proxies_and_validates_address(monkeypatch, code, value, valid):
+    calls = []
+    def run(command, **kwargs):
+        calls.append((command, kwargs))
+        return subprocess.CompletedProcess(command, code, value, "")
+    monkeypatch.setattr(network.subprocess, "run", run)
+    if valid:
+        assert network.query_public_ip() == value
+    else:
+        with pytest.raises(RuntimeError):
+            network.query_public_ip()
+    command, options = calls[0]
+    assert command[command.index("--noproxy") + 1] == "*"
+    assert command[command.index("--max-time") + 1] == "3" and options["timeout"] == 4
+
+
+def test_network_optional_tailscale_uses_only_this_devices_addresses(monkeypatch):
+    monkeypatch.setattr(network.shutil, "which", lambda name: "/usr/bin/tailscale")
+    monkeypatch.setattr(network, "read_json", lambda command: {
+        "BackendState": "Running", "Self": {"DNSName": "research.tail-demo.ts.net.", "TailscaleIPs": ["100.93.12.8"]},
+        "Peer": {"other": {"TailscaleIPs": ["100.93.12.99"]}},
+    })
+    status = network.read_tailscale()
+    assert status["name"] == "research.tail-demo.ts.net"
+    assert [str(address) for address in status["addresses"]] == ["100.93.12.8"]
+    def unavailable(command):
+        raise RuntimeError("daemon unavailable")
+    monkeypatch.setattr(network, "read_json", unavailable)
+    assert network.read_tailscale() is None
+    monkeypatch.setattr(network.shutil, "which", lambda name: None)
+    assert network.read_tailscale() is None
 
 
 def test_listener_parser_handles_ipv6_multiple_owners_and_hidden_pids():

@@ -27,7 +27,7 @@ PiMux is a workspace inside your existing terminal or SSH connection; it is not 
 
 ## Everyday commands
 
-Start with `pimux`. The main interface has clickable **Env, Proxy, GPU, Ports and Help** entries at the top, with visible e / o / g / t / ? keys. Press `q` to return to the same session selection and search. The commands below are optional shortcuts. Inside a workspace, `Ctrl-a h` also opens the action menu.
+Start with `pimux`. The main interface has clickable **Env, Proxy, GPU, Ports, IP and Help** entries at the top, with visible e / o / g / t / i / ? keys. Press `q` to return to the same session selection and search. The commands below are optional shortcuts. Inside a workspace, `Ctrl-a h` also opens the action menu.
 
 ```bash
 pimux                 # Session manager; never creates a session implicitly
@@ -68,6 +68,14 @@ Press `Ctrl-a`, release it, then press the action key. A bright orange badge sho
 | `r` / `d` | Reload / detach and leave tasks running |
 
 In the manager, `n` creates a session with the current directory name prefilled: Enter accepts, or edit the name or clear it to cancel. `x` closes the selected item after confirmation, and `q` returns. The GPU popup refreshes every second. Click a card or use the arrows to select a GPU; the wheel moves between rows, and Page Up/Down changes pages. Press `d` for memory capacity, temperature, power and compute processes. Expanded details retain full process paths and show launch commands and working directories when visible to your Linux user. Long lines wrap, and the wheel or Page Up/Down scrolls through all details; arrows still select GPUs. Press `r` to refresh or `q` / Esc to return. Both popups belong to the current client and do not replace another terminal's application pane.
+
+## IP addresses and subnet routes
+
+Choose **IP** in the main interface, press `i`, or use `pimux ip`. The page shows each interface's IPv4/IPv6 addresses and CIDR subnets, plus default and subnet routes with their device, gateway and routing table. Multiple addresses on one interface and policy routing tables remain distinct.
+
+When available, [Tailscale's local status](https://tailscale.com/docs/reference/tailscale-cli#status) adds this device's addresses and MagicDNS name, including userspace mode. The page does not require Tailscale to be installed. Press `a` to toggle loopback, container and link-local interfaces, `/` to filter, and the wheel or PgUp/PgDn to scroll. Local information refreshes every three seconds. `pimux ip --all --once` prints all interfaces.
+
+Press `p` to request the public egress IP from [ipify](https://www.ipify.org/), with a three-second request limit. This query bypasses HTTP/SOCKS proxies and follows the current system route. Opening the page or refreshing local information does not query that service. The terminal's proxy state or saved PiMux preference is labelled separately.
 
 ## Ports and window previews
 
