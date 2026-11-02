@@ -920,7 +920,8 @@ def test_uninstall_preserves_settings_and_refuses_unrelated_files(tmp_path):
     assert launcher.read_text() == '# personal tool\n'
 
 
-def test_manager_mouse_expands_scrolls_and_opens_search_result(server):
+@pytest.mark.parametrize("columns", [70, 110])
+def test_manager_mouse_expands_scrolls_and_opens_search_result(server, columns):
     env, tmux = server
     wanted = ''
     for index in range(1, 16):
@@ -929,7 +930,7 @@ def test_manager_mouse_expands_scrolls_and_opens_search_result(server):
             wanted = window
     before = tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid}')
     master, slave = os.openpty()
-    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 14, 110, 0, 0))
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 14, columns, 0, 0))
     script = '''source "$1"
 configure_runtime
 load_manager
@@ -939,6 +940,8 @@ manager
     process = subprocess.Popen(['bash', '-c', script, 'test', str(SOURCE / 'bin/pimux')],
                                env=env, stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
     output = bytearray()
+    pane_x = 28 if columns >= 80 else 2
+    item_x = pane_x + 8
 
     def wait_for(value):
         deadline = time.monotonic() + 8
@@ -951,19 +954,29 @@ manager
 
     try:
         wait_for(b'seed')
-        os.write(master, b'\x1b[<0;2;4M\x1b[<0;2;4m')
+        # The same tree works beside the list and in the narrow Tab view.
+        output.clear()
+        os.write(master, b'\t' + b'\x1b[B' * 6 + b'\r')
+        wait_for('IP 与网络'.encode())
+        output.clear()
+        os.write(master, b'q')
+        wait_for('会话管理'.encode())
+        output.clear()
+        os.write(master, b'\t')
+        wait_for(b'seed')
+        os.write(master, f'\x1b[<0;{pane_x};4M\x1b[<0;{pane_x};4m'.encode())
         wait_for(b'mouse-04')
         output.clear()
-        os.write(master, b'\x1b[<65;10;5M')
+        os.write(master, f'\x1b[<65;{item_x};5M'.encode())
         wait_for(b'mouse-07')
         os.write(master, b'/mouse-12')
         wait_for(b'mouse-12')
         output.clear()
         # Release and out-of-list clicks must not enter or corrupt the filter.
-        os.write(master, b'\x1b[<0;10;4m\x1b[<0;10;1M')
+        os.write(master, f'\x1b[<0;{item_x};4m\x1b[<0;{item_x};1M'.encode())
         wait_for(b'mouse-12')
         assert b'OPEN:' not in output
-        os.write(master, b'\x1b[<0;10;4M')
+        os.write(master, f'\x1b[<0;{item_x};4M'.encode())
         wait_for(f'OPEN:$0:{wanted}'.encode())
         assert process.wait(timeout=5) == 0
         assert b'\x1b[?1000l\x1b[?1006l' in output
@@ -1115,12 +1128,12 @@ def test_mouse_click_passes_through_tmux_popup_to_manager(server):
         os.write(master, b'/mouse-target')
         wait_for(lambda: b'mouse-target' in output and b'[1/1]' in output)
         output.clear()
-        os.write(master, b'\x1b[<0;3;4M\x1b[<0;3;4m')
-        wait_for(lambda: '默认设置'.encode() in output)
+        os.write(master, b'\x1b[<0;10;12M\x1b[<0;10;12m')
+        wait_for(lambda: 'IP 与网络'.encode() in output)
         output.clear()
         os.write(master, b'q')
         wait_for(lambda: b'mouse-target' in output and b'[1/1]' in output)
-        os.write(master, b'\x1b[<0;20;5M\x1b[<0;20;5m')
+        os.write(master, b'\x1b[<0;46;5M\x1b[<0;46;5m')
         wait_for(lambda: tmux('list-clients', '-F', '#{window_id}') == wanted)
         assert popup.wait(timeout=5) == 0
         assert tmux('display-message', '-p', '-t', '=seed:', '#{window_id}') == original
@@ -1261,11 +1274,22 @@ manager
         os.close(slave)
 
 
-def test_copy_path_targets_only_requesting_client(tmp_path, server):
+@pytest.mark.parametrize("source", ["path", "ip"])
+def test_copy_path_targets_only_requesting_client(tmp_path, server, source):
     import base64
     env, tmux = server
     directory = tmp_path / 'project "quoted" $literal'
     directory.mkdir()
+    if source == "ip":
+        tools = tmp_path / "network-bin"
+        tools.mkdir()
+        (tools / "tmux").symlink_to(shutil.which("tmux"))
+        ip = tools / "ip"
+        ip.write_text("#!/bin/sh\ncase \"$*\" in *address*) echo '[{\"ifname\":\"eth0\",\"flags\":[\"UP\"],\"addr_info\":[{\"family\":\"inet\",\"local\":\"192.0.2.23\",\"prefixlen\":24}]}]';; *) echo '[]';; esac\n")
+        ip.chmod(0o755)
+        Path(env["PIMUX_RUNTIME_FILE"]).write_text(f"{tools / 'tmux'}\ndefault\n{tools / 'tmux'}\n")
+        env["PATH"] = f'{tools}:{env["PATH"]}'
+        tmux("set-environment", "-g", "PATH", env["PATH"])
     tmux('source-file', str(SOURCE / 'config/tmux.conf'))
     tmux('set-option', '-g', '@pimux_launcher', str(SOURCE / 'bin/pimux'))
     tmux('set-environment', '-g', 'PIMUX_RUNTIME_FILE', env['PIMUX_RUNTIME_FILE'])
@@ -1294,12 +1318,26 @@ def test_copy_path_targets_only_requesting_client(tmp_path, server):
         while not all(b'menu' in output for output in outputs) and time.monotonic() < deadline:
             drain()
         assert all(b'menu' in output for output in outputs), outputs
-        os.write(clients[0][1], b'\x01y')
-        encoded = base64.b64encode(str(directory).encode())
+        if source == "ip":
+            os.write(clients[0][1], b'\x01h')
+            deadline = time.monotonic() + 8
+            while b'PiMux' not in outputs[0] or "工作终端".encode() not in outputs[0]:
+                assert time.monotonic() < deadline, outputs[0].decode(errors="replace")
+                drain()
+            os.write(clients[0][1], b'i')
+            deadline = time.monotonic() + 8
+            while b'192.0.2.23/24' not in outputs[0]:
+                assert time.monotonic() < deadline, outputs[0].decode(errors="replace")
+                drain()
+            os.write(clients[0][1], b'y')
+        else:
+            os.write(clients[0][1], b'\x01y')
+        expected = "192.0.2.23" if source == "ip" else str(directory)
+        encoded = base64.b64encode(expected.encode())
         deadline = time.monotonic() + 8
         while encoded not in outputs[0] and time.monotonic() < deadline:
             drain()
-        assert tmux('show-buffer') == str(directory)
+        assert tmux('show-buffer') == expected
         assert encoded in outputs[0] and b']52;' in outputs[0], outputs[0].decode(errors='replace')
         drain()
         assert encoded not in outputs[1]

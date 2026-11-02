@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # pimux-managed: standalone personal terminal workspace.
 set -euo pipefail
-PIMUX_VERSION=0.7.0
+PIMUX_VERSION=0.8.0
 PIMUX_COMMAND=()
 PIMUX_TARGET_SOCKET=''
 PIMUX_SHARED_SERVER=false
@@ -542,9 +542,13 @@ main() {
         return
     fi
     if [[ ${1:-} == __ip ]]; then
-        [[ $# == 1 || $# == 4 ]] || return 2
         shift
         load_gpu; python_view network "$@"
+        return
+    fi
+    if [[ ${1:-} == __menu ]]; then
+        shift
+        load_gpu; python_view menu_ui "$@"
         return
     fi
     if [[ ${1:-} == __update ]]; then
@@ -590,6 +594,22 @@ main() {
         else
             case $action in
                 menu) show_menu "$client" ;;
+                new-window|rename-window|split-horizontal|split-vertical|zoom|detach)
+                    sid=$(client_session "$client")
+                    local pane path
+                    pane=$(tmux display-message -p -t "$sid:" '#{pane_id}')
+                    path=$(tmux display-message -p -t "$pane" '#{pane_current_path}')
+                    case $action in
+                        new-window) tmux new-window -t "$sid:" -n shell -c "$path" ;;
+                        rename-window)
+                            tmux command-prompt -t "$client" -p "$(tr_ui '窗口名称：')" \
+                                -I "$(tmux display-message -p -t "$pane" '#{window_name}')" \
+                                "rename-window -t $(shell_quote "$pane") -- '%%'" ;;
+                        split-horizontal) tmux split-window -h -t "$pane" -c "$path" ;;
+                        split-vertical) tmux split-window -v -t "$pane" -c "$path" ;;
+                        zoom) tmux resize-pane -Z -t "$pane" ;;
+                        detach) tmux detach-client -t "$client" ;;
+                    esac ;;
                 language) show_language_menu "$client" ;;
                 lang-en|lang-zh) save_language "${action#lang-}"; load_language; show_menu "$client" ;;
                 help)
@@ -605,11 +625,14 @@ main() {
                     tmux display-popup -E -c "$client" -w 95% -h 90% \
                         "$(shell_quote "$PIMUX_LAUNCHER") __update" ;;
                 proxy|environment|ip)
-                    local view=__proxy
+                    local view=__proxy view_args=''
                     [[ $action != environment ]] || view=__env
-                    [[ $action != ip ]] || view=__ip
+                    if [[ $action == ip ]]; then
+                        view=__ip
+                        view_args=" --client $(shell_quote "$client")"
+                    fi
                     tmux display-popup -E -c "$client" -w 95% -h 90% \
-                        "$(shell_quote "$PIMUX_LAUNCHER") $view $(shell_quote "${PIMUX_COMMAND[0]}") $(shell_quote "$PIMUX_TARGET_SOCKET") $(shell_quote "$(tmux display-message -p -t "$(client_session "$client"):" '#{pane_id}')")" ;;
+                        "$(shell_quote "$PIMUX_LAUNCHER") $view$view_args $(shell_quote "${PIMUX_COMMAND[0]}") $(shell_quote "$PIMUX_TARGET_SOCKET") $(shell_quote "$(tmux display-message -p -t "$(client_session "$client"):" '#{pane_id}')")" ;;
                 ports)
                     tmux display-popup -E -c "$client" -w 95% -h 90% \
                         "$(shell_quote "$PIMUX_LAUNCHER") __ports" ;;
@@ -668,7 +691,14 @@ main() {
             fi
             load_proxy; pimux_proxy_command "$@"; return ;;
         ports) shift; load_gpu; python_view ports "$@"; return ;;
-        ip) shift; load_gpu; python_view network "$@"; return ;;
+        ip)
+            shift
+            if [[ -t 0 && -t 1 && -n ${TMUX:-} && -n ${TMUX_PANE:-} ]]; then
+                configure_socket "${TMUX%%,*}"
+                client=$(current_client 2>/dev/null) || client=''
+                set -- --client "$client" "${PIMUX_COMMAND[0]}" "$PIMUX_TARGET_SOCKET" "$TMUX_PANE" "$@"
+            fi
+            load_gpu; python_view network "$@"; return ;;
         env)
             shift
             if [[ $# == 0 && -t 0 && -t 1 ]]; then

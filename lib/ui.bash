@@ -229,36 +229,21 @@ menu_action() {
     shell_quote "$command"
 }
 
-show_menu() {
-    local client=$1 target rename pin_label='置顶当前会话' name
+show_menu() (
+    local client=$1 target name result action command pinned=''
     target=$(client_session "$client")
     load_manager
     name=$(tmux display-message -p -t "$(logical_session "$target"):" '#{session_name}')
-    if session_pin_names | grep -Fxq -- "$name"; then pin_label='取消置顶当前会话'; fi
-    rename="command-prompt -p $(shell_quote "$(tr_ui '窗口名称：')") -I #{q:window_name} \"rename-window -- '%%'\""
-    tmux display-menu -c "$client" -t "$target:" -T "#[fg=#b7a1e8]PiMux · $(tr_ui '工作终端')" -x C -y C \
-        "$(tr_ui '新建窗口')" c 'new-window -n shell -c #{q:pane_current_path}' \
-        "$(tr_ui '重命名窗口')" , "$rename" \
-        "$(tr_ui '完整目录路径')" P "$(menu_action "$client" path)" \
-        "$(tr_ui '复制当前目录路径')" y "$(menu_action "$client" copy-path)" \
-        "$(tr_ui '管理会话 / 窗口')" s "$(menu_action "$client" manager)" \
-        "$(tr_ui "$pin_label")" p "$(menu_action "$client" pin)" \
-        "$(tr_ui '显卡详情')" g "$(menu_action "$client" gpu)" \
-        "$(tr_ui '端口查看')" t "$(menu_action "$client" ports)" \
-        "$(tr_ui 'IP 与网络')" i "$(menu_action "$client" ip)" \
-        '' \
-        "$(tr_ui '左右分屏')" '|' 'split-window -h -c #{q:pane_current_path}' \
-        "$(tr_ui '上下分屏')" '-' 'split-window -v -c #{q:pane_current_path}' \
-        "$(tr_ui '放大 / 恢复')" z 'resize-pane -Z' \
-        "$(tr_ui '关闭当前分屏')" x "$(menu_action "$client" close-pane)" \
-        '' \
-        'Language / 语言' l "$(menu_action "$client" language)" \
-        "$(tr_ui '离开，保留任务')" d 'detach-client' \
-        "$(tr_ui '快捷键帮助')" / "$(menu_action "$client" help)" \
-        "$(tr_ui '更新 PiMux')" u "$(menu_action "$client" update)" \
-        "$(tr_ui '环境变量')" e "$(menu_action "$client" environment)" \
-        "$(tr_ui '网络代理')" o "$(menu_action "$client" proxy)"
-}
+    if session_pin_names | grep -Fxq -- "$name"; then pinned=' --pinned'; fi
+    result=$(mktemp)
+    trap 'rm -f -- "$result"' EXIT
+    command="$(shell_quote "$PIMUX_LAUNCHER") __menu $(shell_quote "$result")$pinned"
+    tmux display-popup -E -c "$client" -d "$(tmux display-message -p -t "$target:" '#{pane_current_path}')" \
+        -w 95% -h 90% "$command"
+    IFS= read -r action < "$result" || return 0
+    # Dispatch after the menu popup has closed, so tool popups never nest.
+    main __client "$PIMUX_TARGET_SOCKET" "$client" "$action"
+)
 
 show_language_menu() {
     local client=$1 zh='简体中文' en='English'

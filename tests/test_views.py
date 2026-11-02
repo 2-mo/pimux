@@ -1,6 +1,8 @@
 """Focused checks for the standalone inspection and proxy views."""
 
 import os
+import base64
+import io
 from pathlib import Path
 import shutil
 import socket
@@ -14,6 +16,7 @@ from inspect_ui import Document, text
 import ports
 import proxy_ui
 import network
+from menu_ui import Menu
 
 
 def network_sample():
@@ -49,6 +52,83 @@ def network_sample():
         {"dst": "fe80::/64", "dev": "veth7"},
     ], 6)
     return interfaces, routes, []
+
+
+def test_network_selection_copies_ip_subnet_and_wrapped_link_local(monkeypatch):
+    snapshot = network_sample()
+    snapshot[0][-1] = network.Interface("veth7", True, "veth", (network.ipaddress.ip_interface("fe80::1234:5678:9abc:def0/64"),))
+    monkeypatch.setattr(network, "read_local", lambda: snapshot)
+    monkeypatch.setattr(network, "read_tailscale", lambda: None)
+    monkeypatch.setattr(network.ProxyPanel, "refresh", lambda self: None)
+    copied = []
+    monkeypatch.setattr(network, "copy_value", lambda value, *args: copied.append(value))
+    view = network.NetworkView()
+    view.refresh()
+    view.query = "eth0"
+    view.render(40, 14)
+    view.on_key("y")
+    view.on_key("Y")
+    assert copied == ["10.0.40.23", "10.0.40.0/24"]
+    selected = view.selected
+    view.refresh()
+    view.render(40, 14)
+    assert view.selected == selected
+    view.on_key("/")
+    view.on_key("y")
+    assert len(copied) == 2 and view.query.endswith("y")
+    view.on_key("KEY_ESCAPE")
+    view.on_key("a")
+    view.query = "veth7"
+    view.render(30, 14)
+    identity = next(key for key, value in view.targets.items() if value["copy_value"] == "fe80::1234:5678:9abc:def0%veth7")
+    assert len(view.positions[identity]) > 1
+    view.selected = identity
+    view.render(30, 14)
+    y, hits = next((y, hits) for y, hits in view.mouse_rows.items() if any(hit[2] == identity for hit in hits))
+    view.selected = ""
+    view.on_key(SimpleNamespace(name="MOUSE_LEFT", mouse_xy=(hits[0][0], y)))
+    view.on_key("y")
+    assert copied[-1] == "fe80::1234:5678:9abc:def0%veth7"
+
+
+def test_network_clipboard_targets_the_requesting_terminal(monkeypatch):
+    calls = []
+    def run(command, **kwargs):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, "", "")
+    monkeypatch.setattr(network.subprocess, "run", run)
+    context = ("/opt/tmux/bin/tmux", "/tmp/isolated/socket", "%7")
+    network.copy_value("2001:db8::23", context, "/dev/pts/9")
+    assert calls == [[context[0], "-S", context[1], "set-buffer", "-w", "-t", "/dev/pts/9", "--", "2001:db8::23"]]
+    with pytest.raises(RuntimeError):
+        network.copy_value("192.0.2.23", context)
+    assert len(calls) == 1
+    stdout = io.StringIO()
+    monkeypatch.setattr(network.sys, "stdout", stdout)
+    network.copy_value("192.0.2.23")
+    assert stdout.getvalue() == "\x1b]52;c;" + base64.b64encode(b"192.0.2.23").decode() + "\a"
+
+
+def test_tree_menu_expands_groups_and_keeps_hidden_shortcuts(tmp_path):
+    result = tmp_path / "selection"
+    view = Menu(result)
+    view.on_key("KEY_ENTER")
+    assert "workspace" in view.expanded and not result.exists()
+    view.on_key("KEY_DOWN")
+    view.on_key("KEY_LEFT")
+    assert view.selected == "workspace"
+    view.on_key("KEY_LEFT")
+    assert "workspace" not in view.expanded
+    assert view.on_key("c")
+    assert result.read_text().strip() == "new-window"
+    view = Menu(result)
+    view.expanded.clear()
+    assert view.on_key("l")
+    assert result.read_text().strip() == "language"
+    view = Menu(result)
+    view.render(80, 24)
+    assert view.on_key(SimpleNamespace(name="MOUSE_LEFT", mouse_xy=(8, 4)))
+    assert result.read_text().strip() == "gpu"
 
 
 def test_network_keeps_multiple_subnets_and_tailscale_routes_distinct(monkeypatch):

@@ -15,9 +15,8 @@ def text(value, style=""):
 
 
 class Document:
-    def __init__(self, title, load, *, searchable=False, hints=()):
+    def __init__(self, title, load, *, searchable=False):
         self.title, self.load, self.searchable = title, load, searchable
-        self.extra_hints = hints
         self.blocks = []
         self.error = ""
         self.offset = 0
@@ -88,8 +87,6 @@ class Document:
             hints.insert(0, ("/", tr("search", "搜索")))
         if width < 65 and not self.searching:
             hints = ([("/", "")] if self.searchable else []) + [("↑↓ PgUp/Dn", ""), ("q", tr("back", "返回"))]
-        if not self.searching:
-            hints = [*self.extra_hints, *hints]
         footer = key_hints(hints)
         footer.no_wrap, footer.overflow = True, "ellipsis"
         return screen(Group(heading, *search, Text(""), *lines[self.offset:self.offset + self.page_size]),

@@ -1,7 +1,7 @@
 # pimux-managed: shared Rich styling for the main workspace interface.
 """Render structured manager rows without mixing names, programs and paths."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import os
 import sys
 
@@ -12,6 +12,7 @@ from rich.text import Text
 
 from gpu_ui import TITLE_STYLE, console, input_field, key_hints, screen, tr
 from inspect_ui import text
+from navigation import entries as navigation_entries, row as navigation_row
 
 TEXT = "#d8dce4"
 MUTED = "#8993a7"
@@ -84,7 +85,8 @@ def entry_row(entry, width, *, searching=False):
     return table
 
 
-def render(entries, navigation, *, width, height, selected, count, query="", searching=False, error=""):
+def render(entries, navigation, *, width, height, selected, count, query="", searching=False, error="",
+           sidebar_width=0, nav_focused=False, nav_selected="manager", nav_offset=0):
     heading = text(" PiMux", TITLE_STYLE)
     heading.append(" · ", style=MUTED)
     heading.append(tr("Session manager", "会话管理"), style=TEXT)
@@ -99,37 +101,61 @@ def render(entries, navigation, *, width, height, selected, count, query="", sea
     search.no_wrap, search.overflow = True, "ellipsis"
     search_bar = Table.grid(Column(width=search_width), Column(width=position.cell_len, justify="right"), expand=True)
     search_bar.add_row(search, position)
-    actions = Text(" ")
-    for key, label in navigation:
-        button = text(key, "bold color(215) on #272d39")
-        button.append(" " + label, style=TEXT + " on #272d39")
-        actions.append_text(button)
-        actions.append(" ")
-    actions.no_wrap, actions.overflow = True, "crop"
-    body = [heading, search_bar, actions]
-    body.extend(entry_row(entry, width, searching=bool(query)) for entry in entries)
+    main_width = width - sidebar_width - 2 if sidebar_width else width
+    menu_heading = text(" " + tr("Menu", "菜单"), "bold " + (CYAN if nav_focused else PURPLE))
+    menu_heading.append(" · Tab", style=MUTED)
+    sessions_heading = text(" " + tr("Sessions", "会话"), "bold " + (PURPLE if nav_focused else CYAN))
+    if not sidebar_width:
+        sessions_heading = text(" " + tr("Menu · Tab", "菜单 · Tab"), MUTED)
+    model = {node.identity: node for node in navigation_entries("home")}
+    tree = []
+    budget = max(1, height - 8)
+    if nav_offset:
+        menu_heading.append(" ↑", style=CYAN)
+    if nav_offset + budget < len(navigation):
+        menu_heading.append(" ↓", style=CYAN)
+    for index in range(nav_offset, min(len(navigation), nav_offset + budget)):
+        identity, expanded = navigation[index]
+        node = model[identity]
+        last = index + 1 == len(navigation) or model[navigation[index + 1][0]].parent != node.parent
+        tree.append(navigation_row(node, expanded=expanded, last=last,
+                                   selected=identity == nav_selected, focused=nav_focused,
+                                   width=sidebar_width or width))
+    session_rows = [entry_row(replace(entry, selected=entry.selected and not nav_focused),
+                              main_width, searching=bool(query)) for entry in entries]
     if not count:
-        body.extend([Text(""), text(tr(" No matching windows" if query else " No sessions yet",
-                                      " 没有匹配的窗口" if query else " 暂无会话"), "bold " + TEXT),
-                     key_hints([(" Esc", tr("clear search", "清除搜索"))] if query else
-                               [(" n", tr("create a session", "新建会话")), ("Enter", tr("confirm name", "确认名称"))])])
-    if searching:
-        hints = [("Enter", tr("open", "进入")), ("Esc", tr("clear", "清除"))]
-        if width >= 80:
-            hints.insert(0, ("↑↓", tr("select", "选择")))
+        session_rows.extend([Text(""), text(tr(" No matching windows" if query else " No sessions yet",
+                                               " 没有匹配的窗口" if query else " 暂无会话"), "bold " + TEXT),
+                             key_hints([(" Esc", tr("clear search", "清除搜索"))] if query else
+                                       [(" n", tr("new session", "新建会话")), ("Enter", tr("confirm", "确认"))])])
+    body = [heading, search_bar]
+    if sidebar_width:
+        grid = Table.grid(Column(width=sidebar_width), Column(width=2), Column(width=main_width), padding=0)
+        grid.add_row(menu_heading, text("│ ", MUTED), sessions_heading)
+        for index in range(max(len(tree), len(session_rows))):
+            grid.add_row(tree[index] if index < len(tree) else Text(""), text("│ ", "#424b5c"),
+                         session_rows[index] if index < len(session_rows) else Text(""))
+        body.append(grid)
+    elif nav_focused:
+        body.extend([menu_heading, *tree])
     else:
-        hints = [("/", tr("search", "搜索")), ("Enter", tr("open", "进入")),
-                 ("d", tr("preview", "预览")), ("q", tr("back", "返回"))]
-        if width >= 80:
-            hints = [("/", tr("search", "搜索")), ("↑↓", tr("select", "选择")),
-                     ("←→", tr("expand", "展开")), ("Enter", tr("open", "进入")),
-                     ("d", tr("preview", "预览")), ("p", tr("pin", "置顶")),
-                     ("n", tr("new", "新建")), ("x", tr("close", "关闭")), ("q", tr("back", "返回"))]
+        body.extend([sessions_heading, *session_rows])
+    if nav_focused:
+        hints = [("↑↓", tr("select", "选择")), ("←→", tr("expand", "展开")),
+                 ("Enter", tr("open", "进入")), ("Tab", tr("sessions", "会话")), ("q", tr("back", "返回"))]
+    elif searching:
+        hints = [("↑↓", tr("select", "选择")), ("Enter", tr("open", "进入")), ("Esc", tr("clear", "清除"))]
+    else:
+        hints = [("Tab", tr("menu", "菜单")), ("/", tr("search", "搜索")), ("Enter", tr("open", "进入"))]
+        if width >= 90:
+            hints.extend([("n", tr("new", "新建")), ("x", tr("close", "关闭"))])
+        hints.append(("q", tr("back", "返回")))
     focused = next((entry for entry in entries if entry.selected), None)
     message = text(error, "red") if error else text(
-        " " + focused.path if focused and focused.path and width < 64 else
-        tr(" Click to open · click arrow to expand/collapse · wheel to scroll",
-           " 点击进入 · 点箭头展开／收起 · 滚轮翻动"), MUTED)
+        " " + focused.path if focused and focused.path and main_width < 64 and not nav_focused else
+        tr(" Click an item to open · arrows to expand · Tab to switch focus",
+           " 点击进入 · 方向键展开 · Tab 切换区域"), MUTED)
+    message.no_wrap, message.overflow = True, "ellipsis"
     return screen(Group(*body), key_hints(hints), width, height, message=message)
 
 
@@ -138,7 +164,9 @@ def main():
     try:
         width, height, selected, count, searching = (int(next(fields)) for _ in range(5))
         query, error = next(fields), next(fields)
-        navigation = [(next(fields), next(fields)) for _ in range(int(next(fields)))]
+        sidebar_width, nav_focused = int(next(fields)), next(fields) == "1"
+        nav_selected, nav_offset = next(fields), int(next(fields))
+        navigation = [(next(fields), next(fields) == "1") for _ in range(int(next(fields)))]
         entries = []
         for _ in range(int(next(fields))):
             session, name, program, path, windows = (
@@ -149,7 +177,9 @@ def main():
         return 2
     with console.capture() as capture:
         console.print(render(entries, navigation, width=width, height=height, selected=selected,
-                             count=count, query=query, searching=bool(searching), error=error), end="")
+                             count=count, query=query, searching=bool(searching), error=error,
+                             sidebar_width=sidebar_width, nav_focused=nav_focused,
+                             nav_selected=nav_selected, nav_offset=nav_offset), end="")
     sys.stdout.write("\033[H\033[2J" + capture.get().rstrip("\n"))
     return 0
 

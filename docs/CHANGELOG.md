@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.0
+
+- Unify the home screen and Ctrl-a h around a navigation tree: Workspace, Resources, Network and Settings, with built-in symbols and existing action keys.
+- Show menu and sessions side by side on wide screens; use Tab to switch areas on narrow screens. Support keyboard expansion and mouse selection.
+- Select IPs, gateways, CIDRs and MagicDNS names, then copy with y / Enter; Y copies an IP's subnet. Preserve scoped IPv6 addresses and target only the requesting terminal's clipboard.
+- Update the home screenshot and built-in help to match the new navigation.
+
 ## 0.7.0
 
 - Add IP and network inspection to the main interface, action menu and optional `pimux ip` shortcut.

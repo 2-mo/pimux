@@ -27,7 +27,7 @@ PiMux is a workspace inside your existing terminal or SSH connection; it is not 
 
 ## Everyday commands
 
-Start with `pimux`. The main interface has clickable **Env, Proxy, GPU, Ports, IP and Help** entries at the top, with visible e / o / g / t / i / ? keys. Press `q` to return to the same session selection and search. The commands below are optional shortcuts. Inside a workspace, `Ctrl-a h` also opens the action menu.
+Start with `pimux`. The main interface and `Ctrl-a h` share a tree grouped into **Workspace, Resources, Network and Settings**, with small built-in symbols. In wide terminals, the home screen shows the menu beside the session list; narrow terminals show one area at a time. `Tab` switches areas, arrows select or expand, and Enter opens an item. Clicking also works. The existing e / o / g / t / i / ? home shortcuts still open tools directly, and `q` returns to the same session selection and search. The commands below are optional shortcuts.
 
 ```bash
 pimux                 # Session manager; never creates a session implicitly
@@ -73,7 +73,11 @@ In the manager, `n` creates a session with the current directory name prefilled:
 
 Choose **IP** in the main interface, press `i`, or use `pimux ip`. The page shows each interface's IPv4/IPv6 addresses and CIDR subnets, plus default and subnet routes with their device, gateway and routing table. Multiple addresses on one interface and policy routing tables remain distinct.
 
-When available, [Tailscale's local status](https://tailscale.com/docs/reference/tailscale-cli#status) adds this device's addresses and MagicDNS name, including userspace mode. The page does not require Tailscale to be installed. Press `a` to toggle loopback, container and link-local interfaces, `/` to filter, and the wheel or PgUp/PgDn to scroll. Local information refreshes every three seconds. `pimux ip --all --once` prints all interfaces.
+When available, [Tailscale's local status](https://tailscale.com/docs/reference/tailscale-cli#status) adds this device's addresses and MagicDNS name, including userspace mode. The page does not require Tailscale to be installed. Press `a` to toggle loopback, container and link-local interfaces, `/` to filter, and the wheel or PgUp/PgDn to scroll.
+
+Select an address with ↑/↓ or a click, then press `y` (or Enter) to copy the IP without its prefix; `Y` copies its subnet as CIDR. IPv6 link-local copies retain `%interface`. Gateways, route CIDRs and MagicDNS names are selectable too. Inside tmux, the value goes to the tmux buffer and only the requesting terminal's clipboard; terminal support for OSC 52 is required for local clipboard transfer. `Ctrl-a ]` can paste the tmux buffer.
+
+Local information refreshes every three seconds. `pimux ip --all --once` prints all interfaces.
 
 Press `p` to request the public egress IP from [ipify](https://www.ipify.org/), with a three-second request limit. This query bypasses HTTP/SOCKS proxies and follows the current system route. Opening the page or refreshing local information does not query that service. The terminal's proxy state or saved PiMux preference is labelled separately.
 

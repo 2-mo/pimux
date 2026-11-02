@@ -21,7 +21,7 @@ pimux
 ```
 
 - Press `n` to create a session; select one and press Enter to open it.
-- Click **Env / Proxy / GPU / Ports / IP / Help** at the top. `q` returns.
+- Use the grouped menu for **GPU, IP, ports, proxy and settings**. `Tab` switches to it; `q` returns.
 - Inside a session: press and release `Ctrl-a`, then `h` for the menu or `d` to detach and keep tasks running.
 
 ## Update
@@ -34,7 +34,7 @@ pimux update
 
 Demo workspace and sample GPU telemetry.
 
-**Find a window by project, command or path.**
+**Find windows by project, command or path; keep tools in one menu.**
 
 ![Session manager with searchable sessions, running programs and directories](docs/screenshots/manager.png)
 
