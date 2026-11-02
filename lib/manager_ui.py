@@ -143,6 +143,8 @@ def render(entries, navigation, *, width, height, selected, count, query="", sea
     if nav_focused:
         hints = [("↑↓", tr("select", "选择")), ("←→", tr("expand", "展开")),
                  ("Enter", tr("open", "进入")), ("Tab", tr("sessions", "会话")), ("q", tr("back", "返回"))]
+        if width < 65:
+            hints = [("↑↓", ""), ("←→", ""), ("Enter", tr("open", "进入")), ("Tab", ""), ("q", tr("back", "返回"))]
     elif searching:
         hints = [("↑↓", tr("select", "选择")), ("Enter", tr("open", "进入")), ("Esc", tr("clear", "清除"))]
     else:
