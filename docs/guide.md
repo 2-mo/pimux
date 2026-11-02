@@ -150,6 +150,8 @@ Uninstall removes only the managed launcher. Your configuration, backups, shared
 
 Runtime and development dependencies use [uv](https://docs.astral.sh/uv/). The launcher is Bash; interactive views use Python 3.10+, Rich and Blessed. The installed Python environment is at `~/.local/share/pimux/venv`.
 
+Source layout: `lib/` holds runtime modules, `config/` holds themes, `scripts/` holds packaging and removal tools, and `docs/screenshots/` holds README captures. The root `pimux`, `install.sh` and `setup-tmux.sh` are the command and installation entry points.
+
 ```bash
 uv sync
 bash scripts/package.sh
@@ -157,6 +159,6 @@ bash scripts/package.sh
 
 Run the test file relevant to a behavior change; documentation-only edits need no tests. Tests use isolated tmux sockets. CI runs on main and pull requests, skips documentation-only changes and tags, and cancels superseded runs.
 
-Release archives contain the explicitly listed runtime files and documentation. PiMux has no dependency on a parent project.
+Release archives contain runtime modules, configuration and user documentation. PiMux has no dependency on a parent project.
 
 Licensed under [Apache-2.0](../LICENSE). tmux and Starship are installed separately and retain their own licenses.

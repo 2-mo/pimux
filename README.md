@@ -4,6 +4,8 @@ A tmux workspace for research and project development.
 
 [简体中文](README.zh-CN.md)
 
+![PiMux session manager: sessions, running programs and directories](docs/screenshots/manager.png)
+
 ## Install · Linux
 
 ```bash

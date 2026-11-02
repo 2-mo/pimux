@@ -4,6 +4,8 @@
 
 [English](README.md)
 
+![PiMux 主界面：会话、运行程序与项目目录](docs/screenshots/manager.png)
+
 ## 安装 · Linux
 
 ```bash

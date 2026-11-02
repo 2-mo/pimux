@@ -26,7 +26,7 @@ def test_environment_shell_applies_literals_preserves_manual_values_and_restores
     env.pop("TMUX_PANE", None)
     script = r'''set -eu
 source "$1/pimux"
-source "$1/environment.bash"
+source "$1/lib/environment.bash"
 FOO=original-local
 export -n FOO
 export BAR=original-export

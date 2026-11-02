@@ -2,7 +2,7 @@
 pimux_environment_python() {
     local directory="$(dirname -- "${BASH_SOURCE[0]}")"
     local python="$HOME/.local/share/pimux/venv/bin/python"
-    [[ ! -x $directory/.venv/bin/python ]] || python="$directory/.venv/bin/python"
+    [[ ! -x $directory/../.venv/bin/python ]] || python="$directory/../.venv/bin/python"
     [[ -x $python ]] || return 1
     "$python" -E "$directory/environment.py" "$@"
 }
