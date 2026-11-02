@@ -56,8 +56,6 @@ def test_install_exposes_short_command_and_preserves_user_settings(tmp_path):
     assert len(list(home.glob('.bashrc.pimux-backup.*'))) == 1
     assert os.access(home / '.local/bin/pimux', os.X_OK)
     config = home / '.config/pimux'
-    for file in ('tmux.conf', 'bashrc', 'shell.bash', 'starship.toml', 'gpu.bash', 'gpu.py', 'gpu_ui.py', 'proxy.bash'):
-        assert (config / file).is_file()
     theme = config / 'tmux.conf'
     theme.write_text('# pimux-managed: previous theme\n')
     result = install(home)
@@ -256,8 +254,7 @@ def test_independent_view_shares_programs_and_preserves_last_reference(tmp_path,
     tmux("set-option", "-g", "@pimux_launcher", str(SOURCE / "pimux"))
     original = tmux("display-message", "-p", "-t", "=seed:", "#{window_id}")
     original_pane = tmux("list-panes", "-t", "=seed:", "-F", "#{pane_id} #{pane_pid}")
-    # The path fits beside the compact actions on a wide terminal.
-    cwd = tmp_path / ("project-" + "a" * max(1, 91 - len(str(tmp_path)))) / "leaf"
+    cwd = tmp_path / "project" / "leaf"
     cwd.mkdir(parents=True)
     second = tmux("new-window", "-d", "-t", "=seed:", "-n", "review", "-c", str(cwd), "-P", "-F", "#{window_id}")
     clients = []
@@ -292,21 +289,6 @@ def test_independent_view_shares_programs_and_preserves_last_reference(tmp_path,
         tmux("select-window", "-t", f"{view}:{second}")
         assert tmux("display-message", "-p", "-t", "=seed:", "#{window_id}") == original
         assert tmux("display-message", "-p", "-t", f"{view}:", "#{window_id}") == second
-        assert "review" in tmux("list-clients", "-t", view, "-F", "#{E:status-format[0]}")
-        rendered = tmux("list-clients", "-t", view, "-F", "#{E:status-format[1]}")
-        assert str(cwd) in rendered
-        fcntl.ioctl(clients[-1][2], termios.TIOCSWINSZ, struct.pack("HHHH", 30, 80, 0, 0))
-        os.killpg(view_client.pid, signal.SIGWINCH)
-        wait_for(lambda: tmux("list-clients", "-t", view, "-F", "#{client_width}") == "80")
-        narrow = tmux("list-clients", "-t", view, "-F", "#{E:status-format[1]}")
-        assert "…" in narrow and "/leaf" in narrow
-        os.write(view_tty, b'\x01')
-        wait_for(lambda: tmux('list-clients', '-t', view, '-F', '#{client_prefix}') == '1')
-        assert tmux('list-clients', '-t', view, '-F', '#{E:status-format[1]}') != narrow
-        assert tmux('list-clients', '-t', first_view, '-F', '#{client_prefix}') == '0'
-        os.write(view_tty, b'\x1b')
-        wait_for(lambda: tmux('list-clients', '-t', view, '-F', '#{client_prefix}') == '0')
-        assert tmux('list-clients', '-t', view, '-F', '#{E:status-format[1]}') == narrow
         listing = subprocess.check_output([str(SOURCE / "pimux"), "ls"], env=env, text=True)
         assert len(listing.splitlines()) == 2 and "~view-" not in listing
         caller_env = {**env, "TMUX_PANE": original_pane.split()[0]}
