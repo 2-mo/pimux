@@ -2,6 +2,7 @@
 
 ## 0.6.0
 
+- Run CI once on main or a pull request; skip tag and documentation-only pushes, cancel superseded runs, and remove brittle layout assertions.
 - Add `pimux env` for searchable environment defaults: edit literal values, enable/disable variables, restore inheritance, and open proxy settings from the same page.
 - Apply defaults in PiMux Bash shells while preserving startup values, export flags, manual overrides and running programs. Store settings atomically with owner-only access; mask sensitive values by default.
 - Replace raw keyboard help with a searchable popup using actual bindings, and display full directory paths in a client-local view.
