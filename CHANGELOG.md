@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.1
+
+- Restore the proxy icon in older panes that have no PiMux shell report by inspecting the foreground process's startup environment.
+- Keep shell reports authoritative and keep the icon hidden when no proxy is detected or process information is unavailable.
+- Show the same detected state in the proxy panel, identifying when it comes from a foreground process.
+
 ## 0.5.0
 
 - Add a searchable TCP port inspector with process commands and working directories, available from the menu and `pimux ports [PORT]`.

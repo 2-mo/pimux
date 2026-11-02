@@ -126,16 +126,58 @@ def test_proxy_layout_fits_and_reports_the_exact_pane(monkeypatch, width, height
     monkeypatch.setattr(proxy_ui, "backend", lambda *args: "on\nhttp://127.0.0.1:7890\n")
     def run(args, **kwargs):
         calls.append(args)
-        return subprocess.CompletedProcess(args, 0, "off\n", "")
+        return subprocess.CompletedProcess(args, 0, "off\t12345\n", "")
     monkeypatch.setattr(proxy_ui.subprocess, "run", run)
     view = proxy_ui.ProxyPanel(("/usr/bin/tmux", "/tmp/specific-socket", "%12"))
     view.refresh()
     assert view.mode == "on" and view.observed == "off"
     assert calls[0][1:3] == ["-S", "/tmp/specific-socket"]
-    assert calls[0][-2:] == ["%12", "@pimux_proxy_status"]
+    assert calls[0][-2:] == ["%12", "#{@pimux_proxy_status}\t#{pane_pid}"]
+    assert not view.inferred
     console = Console(width=width)
     for editing in (False, True):
         if editing:
             view.edit()
         lines = console.render_lines(view.render(width, height), console.options, pad=False)
         assert len(lines) <= height
+
+
+@pytest.mark.parametrize("environment,session,tty,state,expected", [
+    (b"https_proxy=http://example:7890\0", 10, 123, "S", "on"),
+    (b"HTTPS_PROXY=http://example:7890\0", 10, 123, "S", "on"),
+    (b"no_proxy=localhost\0http_proxy=\0", 10, 123, "S", "off"),
+    (b"", 10, 123, "S", "off"),
+    (b"https_proxy=http://example:7890\0", 20, 123, "S", ""),
+    (b"https_proxy=http://example:7890\0", 10, 456, "S", ""),
+    (b"https_proxy=http://example:7890\0", 10, 123, "Z", ""),
+])
+def test_legacy_proxy_uses_foreground_environment_only(tmp_path, monkeypatch, environment, session, tty, state, expected):
+    import proxy_status
+
+    shell = tmp_path / "10"
+    foreground = tmp_path / "11"
+    shell.mkdir()
+    foreground.mkdir()
+    (shell / "stat").write_text("10 (bash) S 1 10 10 123 11")
+    (shell / "environ").write_bytes(b"HTTP_PROXY=http://shell-only:7890\0")
+    (foreground / "stat").write_text(f"11 (foreground task) {state} 10 11 {session} {tty} 11")
+    (foreground / "environ").write_bytes(environment)
+    monkeypatch.setattr(proxy_status, "Path", lambda path: tmp_path / path.removeprefix("/proc/"))
+    assert proxy_status.process_proxy_state(10) == expected
+    assert proxy_status.process_proxy_state(0) == ""
+    assert proxy_status.process_proxy_state(99) == ""
+
+
+def test_proxy_panel_falls_back_only_without_a_shell_report(monkeypatch):
+    monkeypatch.setattr(proxy_ui, "backend", lambda *args: "on\nhttp://saved-only:7890\n")
+    response = ["\t12345\n"]
+    monkeypatch.setattr(proxy_ui.subprocess, "run", lambda args, **kwargs:
+                        subprocess.CompletedProcess(args, 0, response[0], ""))
+    inspected = []
+    monkeypatch.setattr(proxy_ui, "process_proxy_state", lambda pid: inspected.append(pid) or "on")
+    view = proxy_ui.ProxyPanel(("tmux", "/tmp/specific", "%12"))
+    view.refresh()
+    assert view.observed == "on" and view.inferred and inspected == ["12345"]
+    response[0] = "off\t12345\n"
+    view.refresh()
+    assert view.observed == "off" and not view.inferred and inspected == ["12345"]

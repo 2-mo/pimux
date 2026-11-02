@@ -14,6 +14,7 @@ from rich.text import Text
 
 from gpu_ui import MUTED_STYLE, TITLE_STYLE, console, key_hints, run_screen, tr
 from inspect_ui import text
+from proxy_status import process_proxy_state
 
 
 def backend(action, mode="", url=""):
@@ -67,6 +68,7 @@ class ProxyPanel:
         self.context = context
         self.mode, self.url = "inherit", ""
         self.observed = ""
+        self.inferred = False
         self.selected = 0
         self.editing = False
         self.buffer = ""
@@ -82,13 +84,18 @@ class ProxyPanel:
         except (OSError, RuntimeError, ValueError) as error:
             self.error = str(error)
         self.observed = ""
+        self.inferred = False
         if self.context:
             binary, socket, pane = self.context
             try:
-                result = subprocess.run([binary, "-S", socket, "show-options", "-pqv", "-t", pane,
-                                         "@pimux_proxy_status"], capture_output=True, text=True, timeout=2)
+                result = subprocess.run([binary, "-S", socket, "display-message", "-p", "-t", pane,
+                                         "#{@pimux_proxy_status}\t#{pane_pid}"], capture_output=True, text=True, timeout=2)
                 if result.returncode == 0:
-                    self.observed = result.stdout.strip()
+                    reported, _, pid = result.stdout.rstrip("\n").partition("\t")
+                    self.observed = reported
+                    if reported not in {"on", "off"}:
+                        self.observed = process_proxy_state(pid)
+                        self.inferred = bool(self.observed)
             except (OSError, subprocess.TimeoutExpired):
                 pass
 
@@ -179,7 +186,8 @@ class ProxyPanel:
             self.observed, tr("Not reported yet", "尚未报告"))
         settings = [text(tr("PiMux setting   ", "PiMux 设置   ") + labels[self.mode],
                          "bold #63c5f8" if self.mode == "on" else "bold"),
-                    text(tr("Current terminal   ", "当前终端   ") + observed, MUTED_STYLE)]
+                    text((tr("Foreground process   ", "前台进程   ") if self.inferred else
+                          tr("Current terminal   ", "当前终端   ")) + observed, MUTED_STYLE)]
         if not self.editing:
             address = text(tr("Address   ", "地址   ") + (masked(self.url) or tr("Not set", "尚未设置")))
             address.no_wrap, address.overflow = True, "ellipsis"
@@ -222,8 +230,10 @@ class ProxyPanel:
         if not compact:
             body.append(text(tr("Settings apply at the next shell prompt; running programs keep their environment.",
                                 "设置在 shell 下次提示符时应用；运行中的程序保持原环境。"), MUTED_STYLE))
-        feedback = text(self.error or self.notice or tr("⛓ appears only when the terminal reports a proxy.",
-                                                       "终端报告配有代理时，状态栏才显示 ⛓。"),
+        explanation = tr("Older pane · read from the foreground process's startup environment.",
+                         "旧窗口 · 根据前台进程的启动环境识别。") if self.inferred else tr(
+                             "⛓ appears when a proxy is detected in the terminal.", "终端中检测到代理配置时，状态栏显示 ⛓。")
+        feedback = text(self.error or self.notice or explanation,
                         "red" if self.error else "green" if self.notice else MUTED_STYLE)
         hints = [("Enter", tr("save & enable", "保存并启用")), ("Esc", tr("cancel", "取消")), ("Ctrl-u", tr("clear", "清空"))] if self.editing else [
             ("↑↓", tr("select", "选择")), ("Enter", tr("apply", "确认")), ("e", tr("edit", "编辑")), ("q", tr("back", "返回"))]

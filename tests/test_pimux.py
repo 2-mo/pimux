@@ -1371,14 +1371,13 @@ pimux_proxy_prompt
     assert result.returncode == 0, result.stderr
     assert tmux('show-options', '-pqv', '-t', other, '@pimux_proxy_status') == ''
     # Exclude the asynchronous GPU command so its loading text cannot mask spacing.
-    right = tmux('show-options', '-gqv', 'status-right').split('#(', 1)[0]
-    unknown_render = tmux('display-message', '-p', '-t', other, right)
+    right = tmux('show-options', '-gqv', 'status-right').removesuffix('#(#{q:@pimux_launcher} __gpu-status)')
     tmux('set-option', '-p', '-t', other, '@pimux_proxy_status', 'on')
     off_render = tmux('display-message', '-p', '-t', pane, right)
     on_render = tmux('display-message', '-p', '-t', other, right)
     assert off_render != on_render
     assert '⛓︎' in on_render
-    assert off_render == unknown_render == ''
+    assert off_render == ''
     assert '#{?' not in on_render
 
 def test_window_preview_reports_exit_code_and_preserves_panes(server):
@@ -1397,3 +1396,41 @@ def test_window_preview_reports_exit_code_and_preserves_panes(server):
     content = '\n'.join(line.plain for block in blocks for line in block)
     assert 'exit 7' in content and 'preview-output' in content
     assert tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid} #{pane_dead}') == before
+
+def test_proxy_icon_detects_legacy_foreground_process_without_restarting_it(server):
+    env, tmux = server
+    tmux('source-file', str(SOURCE / 'pimux.conf'))
+    tmux('set-option', '-t', 'seed', '@pimux_launcher', str(SOURCE / 'pimux'))
+    # Keep the test independent of NVIDIA availability and asynchronous GPU output.
+    right = tmux('show-options', '-gqv', 'status-right').removesuffix('#(#{q:@pimux_launcher} __gpu-status)') + 'cards'
+    tmux('set-option', '-t', 'seed', 'status-right', right)
+    pane = tmux('new-window', '-t', 'seed', '-P', '-F', '#{pane_id}',
+                'env -u http_proxy -u https_proxy -u all_proxy -u HTTP_PROXY -u ALL_PROXY '
+                'HTTPS_PROXY=http://test-user:private-test-secret@127.0.0.1:7890 sleep 60')
+    assert tmux('show-options', '-pqv', '-t', pane, '@pimux_proxy_status') == ''
+    pid = tmux('display-message', '-p', '-t', pane, '#{pane_pid}')
+    master, slave = os.openpty()
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 24, 110, 0, 0))
+    client = subprocess.Popen(['tmux', 'attach-session', '-t', 'seed'], env=env,
+                              stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
+    output = bytearray()
+    try:
+        deadline = time.monotonic() + 8
+        while '⛓'.encode() not in output and time.monotonic() < deadline:
+            if select.select([master], [], [], .05)[0]:
+                output.extend(os.read(master, 65536))
+        assert '⛓'.encode() in output, output.decode(errors='replace')[-1000:]
+        assert b'private-test-secret' not in output
+        assert b'cards' in output
+        # A shell report takes precedence over the process startup environment.
+        tmux('set-option', '-p', '-t', pane, '@pimux_proxy_status', 'off')
+        rendered = tmux('display-message', '-p', '-t', pane, '#{E:status-right}')
+        assert '⛓' not in rendered and rendered == 'cards'
+        assert tmux('display-message', '-p', '-t', pane, '#{pane_pid}') == pid
+        assert tmux('display-message', '-p', '-t', pane, '#{pane_dead}') == '0'
+    finally:
+        if client.poll() is None:
+            client.terminate()
+            client.wait(timeout=5)
+        os.close(master)
+        os.close(slave)

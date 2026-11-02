@@ -63,7 +63,7 @@ install_files() (
     flock 9
     install_asset "$source_dir/pimux" "$target_home/.local/bin/pimux" 755
     install_asset "$source_dir/pimux.conf" "$config_dir/tmux.conf" 644
-    for file in ui.bash manager.bash gpu.bash gpu.py gpu_ui.py inspect_ui.py ports.py window_details.py proxy_ui.py proxy.bash shell.bash bashrc starship.toml uninstall.sh; do
+    for file in ui.bash manager.bash gpu.bash gpu.py gpu_ui.py inspect_ui.py ports.py window_details.py proxy_ui.py proxy_status.py proxy.bash shell.bash bashrc starship.toml uninstall.sh; do
         install_asset "$source_dir/$file" "$config_dir/$file" 644
     done
     install_command_path "$target_home"
