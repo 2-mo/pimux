@@ -21,7 +21,7 @@ jobs:
       - run: uv sync --locked
       - name: Check shell entry points
         run: |
-          for file in pimux setup-tmux.sh install.sh uninstall.sh manager.bash ui.bash gpu.bash environment.bash proxy.bash shell.bash bashrc scripts/package.sh; do
+          for file in pimux setup-tmux.sh install.sh lib/*.bash lib/bashrc scripts/*.sh; do
             bash -n "$file"
           done
       - name: Check isolated terminal behavior

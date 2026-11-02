@@ -55,7 +55,7 @@ def entry_row(entry, width, *, searching=False):
     if not entry.name:
         row.append("v " if entry.expanded else "> ", style=CYAN if entry.selected else MUTED)
         row.append_text(text(entry.session, "bold " + (CYAN if entry.selected else PURPLE)))
-        row.append("  " + entry.count + " " + tr("windows", "窗口"), style=MUTED)
+        row.append("  " + entry.count + " " + tr("window" if entry.count == "1" else "windows", "窗口"), style=MUTED)
         if entry.pinned:
             row.append("  *", style="bold color(215)")
         row.no_wrap, row.overflow = True, "ellipsis"

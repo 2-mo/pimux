@@ -150,6 +150,8 @@ pimux uninstall
 
 运行和开发依赖使用 [uv](https://docs.astral.sh/uv/) 管理。入口是 Bash，交互界面使用 Python 3.10+、Rich 和 Blessed；安装后的 Python 环境位于 `~/.local/share/pimux/venv`。
 
+源码按职责分目录：`lib/` 放运行模块，`config/` 放主题配置，`scripts/` 放打包与卸载工具，`docs/screenshots/` 放 README 截图。根目录的 `pimux`、`install.sh`、`setup-tmux.sh` 是命令和安装入口。
+
 ```bash
 uv sync
 bash scripts/package.sh
@@ -157,6 +159,6 @@ bash scripts/package.sh
 
 行为改动按需运行对应测试文件，纯文档改动无需测试。测试使用隔离的 tmux socket。CI 在主分支和 PR 上运行，跳过纯文档改动及标签，并取消被新提交替代的运行。
 
-发布包只包含明确列出的运行文件与文档，PiMux 不依赖其他项目。
+发布包包含运行模块、配置与用户文档，PiMux 不依赖其他项目。
 
 采用 [Apache-2.0](../LICENSE) 许可证；tmux 和 Starship 独立安装，保留各自的许可证。

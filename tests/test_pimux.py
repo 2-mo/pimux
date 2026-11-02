@@ -155,7 +155,7 @@ source "$1"
 [[ $STARSHIP_CONFIG == "$HOME/.config/pimux/starship.toml" ]]
 '''
     result = subprocess.run(['bash', '--noprofile', '--norc', '-ic', script,
-                             'test', str(SOURCE / 'bashrc')], env=env,
+                             'test', str(SOURCE / 'lib/bashrc')], env=env,
                             capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
 
@@ -250,7 +250,7 @@ def test_noninteractive_entry_is_read_only(server):
 @pytest.mark.parametrize("close_original", [False, True])
 def test_independent_view_shares_programs_and_preserves_last_reference(tmp_path, server, close_original):
     env, tmux = server
-    tmux("source-file", str(SOURCE / "pimux.conf"))
+    tmux("source-file", str(SOURCE / "config/tmux.conf"))
     tmux("set-option", "-g", "@pimux_launcher", str(SOURCE / "pimux"))
     original = tmux("display-message", "-p", "-t", "=seed:", "#{window_id}")
     original_pane = tmux("list-panes", "-t", "=seed:", "-F", "#{pane_id} #{pane_pid}")
@@ -486,7 +486,7 @@ def test_cross_server_entry_refuses_before_creating_session(server):
 @pytest.mark.parametrize("has_other_session", [True, False])
 def test_manager_can_close_its_own_session(server, has_other_session):
     env, tmux = server
-    tmux("source-file", str(SOURCE / "pimux.conf"))
+    tmux("source-file", str(SOURCE / "config/tmux.conf"))
     tmux("set-option", "-g", "@pimux_launcher", str(SOURCE / "pimux"))
     kept_pane = tmux("list-panes", "-t", "=seed:", "-F", "#{pane_id} #{pane_pid}")
     tmux("new-session", "-d", "-s", "self")
@@ -620,13 +620,13 @@ def test_language_menu_persists_and_syncs_only_pimux_across_servers(server):
     preference = Path(env["PIMUX_LANGUAGE_FILE"])
     preference.unlink()
     Path(env["PIMUX_RUNTIME_FILE"]).write_text(f"{shutil.which('tmux')}\nparallel\n{shutil.which('tmux')}\n")
-    tmux("source-file", str(SOURCE / "pimux.conf"))
+    tmux("source-file", str(SOURCE / "config/tmux.conf"))
     tmux("new-session", "-d", "-s", "untouched")
     untouched = tmux("display-message", "-p", "-t", "=untouched:", "#{session_id}")
     tmux("set-option", "-t", untouched, "@pimux_launcher", "")
     original_options = tmux("show-options", "-t", untouched)
     tmux("-L", "parallel", "-f", "/dev/null", "new-session", "-d", "-s", "fresh")
-    tmux("-L", "parallel", "source-file", str(SOURCE / "pimux.conf"))
+    tmux("-L", "parallel", "source-file", str(SOURCE / "config/tmux.conf"))
     before = {socket: tmux("-L", socket, "list-panes", "-a", "-F", "#{pane_id} #{pane_pid}")
               for socket in ["default", "parallel"]}
     clients = []
@@ -700,7 +700,7 @@ def test_language_menu_persists_and_syncs_only_pimux_across_servers(server):
             return not state or state.startswith("Z")
         wait_for(server_stopped)
         tmux("-L", "parallel", "-f", "/dev/null", "new-session", "-d", "-s", "fresh")
-        tmux("-L", "parallel", "source-file", str(SOURCE / "pimux.conf"))
+        tmux("-L", "parallel", "source-file", str(SOURCE / "config/tmux.conf"))
         third, third_tty = start("-n", "fresh")
         wait_for(lambda: bool(tmux("-L", "parallel", "list-clients", "-F", "#{session_id}")))
         assert tmux("-L", "parallel", "list-clients", "-F", "#{@pimux_language}") == "zh"
@@ -767,7 +767,7 @@ def test_search_gpu_popup_and_reload_preserve_running_panes(tmp_path, server):
     tmux('set-environment', '-g', 'PATH', env['PATH'])
     tmux('set-environment', '-g', 'PIMUX_RUNTIME_FILE', env['PIMUX_RUNTIME_FILE'])
     tmux('set-environment', '-g', 'PIMUX_LANGUAGE_FILE', env['PIMUX_LANGUAGE_FILE'])
-    tmux('source-file', str(SOURCE / 'pimux.conf'))
+    tmux('source-file', str(SOURCE / 'config/tmux.conf'))
     tmux('set-option', '-g', '@pimux_launcher', str(SOURCE / 'pimux'))
     # Literal brackets must not become a pattern; hidden windows are searchable.
     wanted = tmux('new-window', '-d', '-t', 'seed', '-n', 'Train[Fast]', '-P', '-F', '#{window_id}', 'sleep 60')
@@ -862,7 +862,7 @@ def test_uninstall_preserves_settings_and_refuses_unrelated_files(tmp_path):
     theme = tmp_path / '.config/pimux/tmux.conf'
     before = theme.read_bytes()
     command = ['bash', '-c', 'source "$1"; uninstall_launcher "$2"', 'test',
-               str(SOURCE / 'uninstall.sh'), str(tmp_path)]
+               str(SOURCE / 'scripts/uninstall.sh'), str(tmp_path)]
     subprocess.run(command, check=True, capture_output=True)
     assert not launcher.exists()
     assert theme.read_bytes() == before
@@ -1030,7 +1030,7 @@ exit "$UPDATE_DOWNLOAD_STATUS"
 
 def test_mouse_click_passes_through_tmux_popup_to_manager(server):
     env, tmux = server
-    tmux('source-file', str(SOURCE / 'pimux.conf'))
+    tmux('source-file', str(SOURCE / 'config/tmux.conf'))
     tmux('set-option', '-g', '@pimux_launcher', str(SOURCE / 'pimux'))
     tmux('set-environment', '-g', 'PIMUX_RUNTIME_FILE', env['PIMUX_RUNTIME_FILE'])
     tmux('set-environment', '-g', 'PIMUX_LANGUAGE_FILE', env['PIMUX_LANGUAGE_FILE'])
@@ -1095,8 +1095,8 @@ def test_proxy_shell_apply_disable_restore_and_validation(tmp_path):
     env.update(PATH=f'{SOURCE}:{env["PATH"]}', PIMUX_PROXY_FILE=str(proxy_file),
                HTTP_PROXY='http://inherited.example:8080', no_proxy='localhost,127.0.0.1')
     script = r'''set -e
-source "$1/ui.bash"
-source "$1/proxy.bash"
+source "$1/lib/ui.bash"
+source "$1/lib/proxy.bash"
 existing_hook() { :; }
 PROMPT_COMMAND=(existing_hook)
 pimux_proxy_shell_init
@@ -1133,7 +1133,7 @@ set -e
 if pimux proxy set $'http://bad\naddress'; then exit 9; fi
 [[ $all_proxy == socks5h://127.0.0.1:7890 ]]
 # A fresh shell gets the preference without manual configuration.
-bash -c 'source "$1"; pimux_proxy_shell_init; [[ $https_proxy == socks5h://127.0.0.1:7890 ]]' test "$1/proxy.bash"
+bash -c 'source "$1"; pimux_proxy_shell_init; [[ $https_proxy == socks5h://127.0.0.1:7890 ]]' test "$1/lib/proxy.bash"
 # Settings remain editable even if an interrupted/manual edit left invalid data.
 printf 'broken\n' > "$PIMUX_PROXY_FILE"
 pimux proxy set http://127.0.0.1:8888
@@ -1217,7 +1217,7 @@ def test_copy_path_targets_only_requesting_client(tmp_path, server):
     env, tmux = server
     directory = tmp_path / 'project "quoted" $literal'
     directory.mkdir()
-    tmux('source-file', str(SOURCE / 'pimux.conf'))
+    tmux('source-file', str(SOURCE / 'config/tmux.conf'))
     tmux('set-option', '-g', '@pimux_launcher', str(SOURCE / 'pimux'))
     tmux('set-environment', '-g', 'PIMUX_RUNTIME_FILE', env['PIMUX_RUNTIME_FILE'])
     tmux('set-environment', '-g', 'PIMUX_PINS_FILE', env['PIMUX_PINS_FILE'])
@@ -1354,14 +1354,14 @@ pimux proxy on
 
 def test_proxy_indicator_tracks_the_pane_and_manual_exports(server):
     env, tmux = server
-    tmux('source-file', str(SOURCE / 'pimux.conf'))
+    tmux('source-file', str(SOURCE / 'config/tmux.conf'))
     pane = tmux('display-message', '-p', '-t', 'seed', '#{pane_id}')
     other = tmux('split-window', '-d', '-t', pane, '-P', '-F', '#{pane_id}')
     shell_env = {key: value for key, value in env.items()
                  if key.lower() not in ('http_proxy', 'https_proxy', 'all_proxy')}
     shell_env.update(TMUX=tmux('display-message', '-p', '#{socket_path},#{pid},0'), TMUX_PANE=pane)
     script = '''set -e
-source "$1/proxy.bash"
+source "$1/lib/proxy.bash"
 pimux_proxy_shell_init
 [[ $(command tmux show-options -pqv -t "$TMUX_PANE" @pimux_proxy_status) == off ]]
 export https_proxy=http://127.0.0.1:7890
@@ -1404,7 +1404,7 @@ def test_window_preview_reports_exit_code_and_preserves_panes(server):
 
 def test_proxy_icon_detects_legacy_foreground_process_without_restarting_it(server):
     env, tmux = server
-    tmux('source-file', str(SOURCE / 'pimux.conf'))
+    tmux('source-file', str(SOURCE / 'config/tmux.conf'))
     tmux('set-option', '-t', 'seed', '@pimux_launcher', str(SOURCE / 'pimux'))
     # Keep the test independent of NVIDIA availability and asynchronous GPU output.
     right = tmux('show-options', '-gqv', 'status-right').removesuffix('#(#{q:@pimux_launcher} __gpu-status)') + 'cards'
@@ -1442,7 +1442,7 @@ def test_proxy_icon_detects_legacy_foreground_process_without_restarting_it(serv
 
 def test_close_pane_confirms_and_targets_only_the_selected_split(server):
     env, tmux = server
-    tmux('source-file', str(SOURCE / 'pimux.conf'))
+    tmux('source-file', str(SOURCE / 'config/tmux.conf'))
     tmux('set-option', '-g', '@pimux_launcher', str(SOURCE / 'pimux'))
     survivor = tmux('display-message', '-p', '-t', 'seed:', '#{pane_id}')
     survivor_pid = tmux('display-message', '-p', '-t', survivor, '#{pane_pid}')

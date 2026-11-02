@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.3
+
+- Show an actual main-interface capture in both quick-start READMEs.
+- Group runtime modules in `lib/`, theme files in `config/` and maintenance scripts in `scripts/`; update source loading, installation and release packaging together.
+
 ## 0.6.2
 
 - Give the main interface distinct colors for sessions, programs, directories, shortcuts and feedback, with a cyan marker and background for the selected row.

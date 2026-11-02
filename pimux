@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # pimux-managed: standalone personal terminal workspace.
 set -euo pipefail
-PIMUX_VERSION=0.6.2
+PIMUX_VERSION=0.6.3
 PIMUX_COMMAND=()
 PIMUX_TARGET_SOCKET=''
 PIMUX_SHARED_SERVER=false
 PIMUX_LAUNCHER=$(readlink -f -- "${BASH_SOURCE[0]}")
-PIMUX_UI_DIR=$(dirname -- "$PIMUX_LAUNCHER")
+PIMUX_UI_DIR="$(dirname -- "$PIMUX_LAUNCHER")/lib"
 [[ -f $PIMUX_UI_DIR/ui.bash ]] || PIMUX_UI_DIR="$HOME/.config/pimux"
 source "$PIMUX_UI_DIR/ui.bash"
 
@@ -19,7 +19,7 @@ tmux() {
 }
 
 theme_file() {
-    local file="$(dirname -- "$PIMUX_LAUNCHER")/pimux.conf"
+    local file="$(dirname -- "$PIMUX_LAUNCHER")/config/tmux.conf"
     [[ -f $file ]] || file="$HOME/.config/pimux/tmux.conf"
     printf '%s\n' "$file"
 }
@@ -496,22 +496,15 @@ doctor() {
 }
 
 load_manager() {
-    local file
-    file="$(dirname -- "$PIMUX_LAUNCHER")/manager.bash"
-    [[ -f $file ]] || file="$HOME/.config/pimux/manager.bash"
-    source "$file"
+    source "$PIMUX_UI_DIR/manager.bash"
 }
 
 load_gpu() {
-    local file="$(dirname -- "$PIMUX_LAUNCHER")/gpu.bash"
-    [[ -f $file ]] || file="$HOME/.config/pimux/gpu.bash"
-    source "$file"
+    source "$PIMUX_UI_DIR/gpu.bash"
 }
 
 load_proxy() {
-    local file="$(dirname -- "$PIMUX_LAUNCHER")/proxy.bash"
-    [[ -f $file ]] || file="$HOME/.config/pimux/proxy.bash"
-    source "$file"
+    source "$PIMUX_UI_DIR/proxy.bash"
 }
 
 update_pimux() (
@@ -676,7 +669,7 @@ main() {
             load_gpu; python_view environment "$@"; return ;;
         uninstall)
             [[ $# == 1 ]] || return 2
-            local file="$(dirname -- "$PIMUX_LAUNCHER")/uninstall.sh"
+            local file="$(dirname -- "$PIMUX_LAUNCHER")/scripts/uninstall.sh"
             [[ -f $file ]] || file="$HOME/.config/pimux/uninstall.sh"
             exec bash "$file" ;;
         -h|--help) [[ $# == 1 ]] || return 2; usage; return ;;
