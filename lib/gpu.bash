@@ -3,7 +3,7 @@ python_view() {
     local view=$1
     shift
     local directory=$PIMUX_UI_DIR
-    local development="$(dirname -- "$PIMUX_LAUNCHER")/.venv/bin/python"
+    local development="$PIMUX_ROOT/.venv/bin/python"
     local python="$HOME/.local/share/pimux/venv/bin/python"
     # Source checkouts use the development environment managed by uv.
     [[ ! -x $development ]] || python=$development

@@ -17,7 +17,7 @@ SOURCE = Path(__file__).resolve().parents[1]
 
 def test_environment_shell_applies_literals_preserves_manual_values_and_restores_exports(tmp_path):
     marker = tmp_path / "must-not-run"
-    env = dict(os.environ, PATH=f'{SOURCE}:{os.environ["PATH"]}',
+    env = dict(os.environ, PATH=f'{SOURCE / "bin"}:{os.environ["PATH"]}',
                PIMUX_ENV_FILE=str(tmp_path / "environment.json"),
                PIMUX_PROXY_FILE=str(tmp_path / "proxy"),
                PIMUX_LANGUAGE_FILE=str(tmp_path / "language"),
@@ -25,7 +25,7 @@ def test_environment_shell_applies_literals_preserves_manual_values_and_restores
     env.pop("TMUX", None)
     env.pop("TMUX_PANE", None)
     script = r'''set -eu
-source "$1/pimux"
+source "$1/bin/pimux"
 source "$1/lib/environment.bash"
 FOO=original-local
 export -n FOO

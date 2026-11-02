@@ -11,7 +11,7 @@ from inspect_ui import Document, text
 
 
 def key_notes(binary, socket):
-    launcher = os.environ.get("PIMUX_LAUNCHER", str(Path(__file__).resolve().parents[1] / "pimux"))
+    launcher = os.environ.get("PIMUX_LAUNCHER", str(Path(__file__).resolve().parents[1] / "bin/pimux"))
     result = subprocess.run(["bash", "-c", 'source "$1"; PIMUX_COMMAND=("$2" -S "$3"); shortcut_help',
                              "help", launcher, binary, socket], capture_output=True, text=True, timeout=3)
     if result.returncode:

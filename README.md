@@ -2,9 +2,9 @@
 
 A tmux workspace for research and project development.
 
-[简体中文](README.zh-CN.md)
+[简体中文](docs/README.zh-CN.md)
 
-![PiMux session manager: sessions, running programs and directories](docs/screenshots/manager.png)
+![PiMux workspace: training, logs and a styled shell in split panes, with prefix-key hints and GPU activity](docs/screenshots/workspace.png)
 
 ## Install · Linux
 
@@ -28,4 +28,24 @@ pimux
 pimux update
 ```
 
-[Full guide](https://github.com/2-mo/pimux/blob/main/docs/guide.md) · [Changelog](CHANGELOG.md) · [Apache-2.0](LICENSE)
+## See it in action
+
+Demo workspace and sample GPU telemetry.
+
+**Find a window by project, command or path.**
+
+![Session manager with searchable sessions, running programs and directories](docs/screenshots/manager.png)
+
+**Spot free GPUs and inspect full process commands.**
+
+![GPU utilization, memory, history and process command details](docs/screenshots/gpu.png)
+
+**Save environment defaults; keep sensitive values masked.**
+
+![Environment defaults, inherited values and a masked token](docs/screenshots/environment.png)
+
+**Enable, disable or edit your proxy in one place.**
+
+![Proxy settings showing the saved address, terminal state and available actions](docs/screenshots/proxy.png)
+
+[Full guide](https://github.com/2-mo/pimux/blob/main/docs/guide.md) · [Changelog](docs/CHANGELOG.md) · [Apache-2.0](LICENSE)

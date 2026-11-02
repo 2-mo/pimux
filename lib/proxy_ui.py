@@ -17,7 +17,7 @@ from proxy_status import process_proxy_state
 
 
 def backend(action, mode="", url=""):
-    launcher = os.environ.get("PIMUX_LAUNCHER", str(Path(__file__).resolve().parents[1] / "pimux"))
+    launcher = os.environ.get("PIMUX_LAUNCHER", str(Path(__file__).resolve().parents[1] / "bin/pimux"))
     script = 'source "$1"; load_proxy; '
     if action == "read":
         script += 'pimux_proxy_read || exit 1; printf "%s\\n%s\\n" "$PIMUX_PROXY_MODE" "$PIMUX_PROXY_URL"'

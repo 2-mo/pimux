@@ -19,7 +19,7 @@ SOURCE = Path(__file__).resolve().parents[1]
 def install(home, function="install_files"):
     return subprocess.run(
         ["bash", "-c", 'source "$1"; "$2" "$3" "$4"', "test",
-         str(SOURCE / "setup-tmux.sh"), function, str(home), str(SOURCE)],
+         str(SOURCE / "scripts/setup-tmux.sh"), function, str(home), str(SOURCE)],
         text=True, capture_output=True,
     )
 
@@ -221,7 +221,7 @@ tmux() {
 }
 ensure_session "$2"
 '''
-    args = ["bash", "-c", call, "test", str(SOURCE / "pimux"), "agents"]
+    args = ["bash", "-c", call, "test", str(SOURCE / "bin/pimux"), "agents"]
     calls = [subprocess.Popen(args, cwd=cwd, env=env, text=True,
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
              for _ in range(4)]
@@ -241,7 +241,7 @@ ensure_session "$2"
 
 def test_noninteractive_entry_is_read_only(server):
     env, tmux = server
-    result = subprocess.run([str(SOURCE / "pimux"), "-n", "new-project"], env=env,
+    result = subprocess.run([str(SOURCE / "bin/pimux"), "-n", "new-project"], env=env,
                             text=True, capture_output=True)
     assert result.returncode != 0
     assert tmux("list-sessions", "-F", "#{session_name}") == "seed"
@@ -251,7 +251,7 @@ def test_noninteractive_entry_is_read_only(server):
 def test_independent_view_shares_programs_and_preserves_last_reference(tmp_path, server, close_original):
     env, tmux = server
     tmux("source-file", str(SOURCE / "config/tmux.conf"))
-    tmux("set-option", "-g", "@pimux_launcher", str(SOURCE / "pimux"))
+    tmux("set-option", "-g", "@pimux_launcher", str(SOURCE / "bin/pimux"))
     original = tmux("display-message", "-p", "-t", "=seed:", "#{window_id}")
     original_pane = tmux("list-panes", "-t", "=seed:", "-F", "#{pane_id} #{pane_pid}")
     cwd = tmp_path / "project" / "leaf"
@@ -263,7 +263,7 @@ def test_independent_view_shares_programs_and_preserves_last_reference(tmp_path,
     def start(*args):
         master, slave = os.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 160, 0, 0))
-        process = subprocess.Popen([str(SOURCE / "pimux"), *args], env=env,
+        process = subprocess.Popen([str(SOURCE / "bin/pimux"), *args], env=env,
                                    stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
         clients.append((process, master, slave))
         return process, master
@@ -289,15 +289,15 @@ def test_independent_view_shares_programs_and_preserves_last_reference(tmp_path,
         tmux("select-window", "-t", f"{view}:{second}")
         assert tmux("display-message", "-p", "-t", "=seed:", "#{window_id}") == original
         assert tmux("display-message", "-p", "-t", f"{view}:", "#{window_id}") == second
-        listing = subprocess.check_output([str(SOURCE / "pimux"), "ls"], env=env, text=True)
+        listing = subprocess.check_output([str(SOURCE / "bin/pimux"), "ls"], env=env, text=True)
         assert len(listing.splitlines()) == 2 and "~view-" not in listing
         caller_env = {**env, "TMUX_PANE": original_pane.split()[0]}
-        caller = subprocess.run(["bash", "-c", 'source "$1"; current_client', "test", str(SOURCE / "pimux")],
+        caller = subprocess.run(["bash", "-c", 'source "$1"; current_client', "test", str(SOURCE / "bin/pimux")],
                                 env=caller_env, capture_output=True, text=True)
         assert caller.returncode == 0
         assert caller.stdout.strip() == tmux("list-clients", "-t", first_view, "-F", "#{client_name}")
         tmux("select-window", "-t", f"{view}:{original}")
-        ambiguous = subprocess.run(["bash", "-c", 'source "$1"; current_client', "test", str(SOURCE / "pimux")],
+        ambiguous = subprocess.run(["bash", "-c", 'source "$1"; current_client', "test", str(SOURCE / "bin/pimux")],
                                    env=caller_env, capture_output=True, text=True)
         assert ambiguous.returncode != 0
         tmux("select-window", "-t", f"{view}:{second}")
@@ -357,13 +357,13 @@ def test_runtime_routes_new_and_system_servers_separately(server):
         # A read-only command from an old pane must still address the selected server.
         env["TMUX"] = tmux("display-message", "-p", "#{socket_path},#{pid},0")
         env["TMUX_PANE"] = "%9999"
-        fresh = subprocess.run([str(SOURCE / "pimux"), "ls"], env=env,
+        fresh = subprocess.run([str(SOURCE / "bin/pimux"), "ls"], env=env,
                                text=True, capture_output=True, check=True)
-        old = subprocess.run([str(SOURCE / "pimux"), "--system", "ls"], env=env,
+        old = subprocess.run([str(SOURCE / "bin/pimux"), "--system", "ls"], env=env,
                              text=True, capture_output=True, check=True)
         assert "fresh" in fresh.stdout and "seed" not in fresh.stdout
         assert "seed" in old.stdout and "fresh" not in old.stdout
-        diagnostics = subprocess.run([str(SOURCE / "pimux"), "doctor"], env=env,
+        diagnostics = subprocess.run([str(SOURCE / "bin/pimux"), "doctor"], env=env,
                                      text=True, capture_output=True, check=True)
         pid = tmux("-L", "pimux-3.8", "display-message", "-p", "#{pid}")
         assert f"PID {pid}" in diagnostics.stdout
@@ -371,12 +371,12 @@ def test_runtime_routes_new_and_system_servers_separately(server):
         tmux("new-session", "-d", "-s", "personal")
         tmux("set-option", "-t", "personal", "status-right", "personal status")
         for options, session in (([], "seed"), (["-L", "pimux-3.8"], "fresh")):
-            tmux(*options, "set-option", "-t", session, "@pimux_launcher", str(SOURCE / "pimux"))
+            tmux(*options, "set-option", "-t", session, "@pimux_launcher", str(SOURCE / "bin/pimux"))
             tmux(*options, "set-option", "-t", session, "status-right", "")
         before = tmux("list-panes", "-a", "-F", "#{pane_id} #{pane_pid}")
         subprocess.run(
             ["bash", "-c", 'source "$1"; configure_runtime; refresh_session_themes',
-             "test", str(SOURCE / "pimux")], env=env, check=True, capture_output=True,
+             "test", str(SOURCE / "bin/pimux")], env=env, check=True, capture_output=True,
         )
         for options, session in (([], "seed"), (["-L", "pimux-3.8"], "fresh")):
             assert "__gpu-status" in tmux(*options, "show-options", "-qv", "-t", session, "status-right")
@@ -392,7 +392,7 @@ def test_shared_server_reload_and_short_command_preserve_other_sessions(server):
         f"{shutil.which('tmux')}\npimux\n{shutil.which('tmux')}\n"
     )
     tmux('new-session', '-d', '-s', 'personal')
-    tmux('set-option', '-t', 'seed', '@pimux_launcher', str(SOURCE / 'pimux'))
+    tmux('set-option', '-t', 'seed', '@pimux_launcher', str(SOURCE / 'bin/pimux'))
     tmux('bind-key', '-r', 'g', 'set-option', '@original_gpu_key', 'used')
     tmux('unbind-key', 'h')
     global_before = tmux('show-options', '-g')
@@ -401,11 +401,11 @@ def test_shared_server_reload_and_short_command_preserve_other_sessions(server):
     env['TMUX'] = tmux('display-message', '-p', '-t', 'seed', '#{socket_path},#{pid},0')
     env['TMUX_PANE'] = tmux('display-message', '-p', '-t', 'seed', '#{pane_id}')
     # No --system is needed inside a managed workspace on the older server.
-    listing = subprocess.run([str(SOURCE / 'pimux'), 'ls'], env=env,
+    listing = subprocess.run([str(SOURCE / 'bin/pimux'), 'ls'], env=env,
                              capture_output=True, text=True, check=True)
     assert 'seed' in listing.stdout and 'personal' in listing.stdout
     for _ in range(2):
-        subprocess.run([str(SOURCE / 'pimux'), 'reload'], env=env,
+        subprocess.run([str(SOURCE / 'bin/pimux'), 'reload'], env=env,
                        capture_output=True, text=True, check=True)
         assert tmux('show-options', '-gqv', '@pimux_fallback_gpu') == 'set-option @original_gpu_key used'
         assert tmux('show-options', '-gqv', '@pimux_fallback_menu') == ''
@@ -469,7 +469,7 @@ def test_cross_server_entry_refuses_before_creating_session(server):
     env["TMUX_PANE"] = "%0"
     master, slave = os.openpty()
     try:
-        result = subprocess.run([str(SOURCE / "pimux"), "-n", "agents"], env=env,
+        result = subprocess.run([str(SOURCE / "bin/pimux"), "-n", "agents"], env=env,
                                 stdin=slave, stdout=slave, stderr=subprocess.PIPE,
                                 text=True, timeout=5)
         assert result.returncode != 0
@@ -487,18 +487,18 @@ def test_cross_server_entry_refuses_before_creating_session(server):
 def test_manager_can_close_its_own_session(server, has_other_session):
     env, tmux = server
     tmux("source-file", str(SOURCE / "config/tmux.conf"))
-    tmux("set-option", "-g", "@pimux_launcher", str(SOURCE / "pimux"))
+    tmux("set-option", "-g", "@pimux_launcher", str(SOURCE / "bin/pimux"))
     kept_pane = tmux("list-panes", "-t", "=seed:", "-F", "#{pane_id} #{pane_pid}")
     tmux("new-session", "-d", "-s", "self")
     if not has_other_session:
         tmux("kill-session", "-t", "=seed")
     master, slave = os.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 120, 0, 0))
-    client = subprocess.Popen([str(SOURCE / "pimux"), "-n", "self"], env=env, stdin=slave,
+    client = subprocess.Popen([str(SOURCE / "bin/pimux"), "-n", "self"], env=env, stdin=slave,
                               stdout=slave, stderr=slave, start_new_session=True)
     peer_master, peer_slave = os.openpty()
     fcntl.ioctl(peer_slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 120, 0, 0))
-    peer = subprocess.Popen([str(SOURCE / "pimux"), "-n", "self"], env=env, stdin=peer_slave,
+    peer = subprocess.Popen([str(SOURCE / "bin/pimux"), "-n", "self"], env=env, stdin=peer_slave,
                             stdout=peer_slave, stderr=peer_slave, start_new_session=True)
     output = bytearray()
 
@@ -554,14 +554,14 @@ def test_empty_manager_creates_only_on_request_and_help_is_read_only(tmp_path, s
     expected = 'experiment-v2' if use_suggested_name else 'ls'
     tmux("kill-server")
     for args in (["-h"], ["ls"]):
-        result = subprocess.run([str(SOURCE / "pimux"), *args], env=env, text=True, capture_output=True)
+        result = subprocess.run([str(SOURCE / "bin/pimux"), *args], env=env, text=True, capture_output=True)
         assert result.returncode == 0
-    unknown = subprocess.run([str(SOURCE / "pimux"), "arbitrary-name"], env=env, capture_output=True)
+    unknown = subprocess.run([str(SOURCE / "bin/pimux"), "arbitrary-name"], env=env, capture_output=True)
     assert unknown.returncode == 2
     assert subprocess.run(["tmux", "list-sessions"], env=env, capture_output=True).returncode != 0
     master, slave = os.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 120, 0, 0))
-    client = subprocess.Popen([str(SOURCE / "pimux")], env=env, stdin=slave,
+    client = subprocess.Popen([str(SOURCE / "bin/pimux")], env=env, stdin=slave,
                               stdout=slave, stderr=slave, start_new_session=True, cwd=project)
     output = bytearray()
 
@@ -605,7 +605,7 @@ def test_empty_manager_creates_only_on_request_and_help_is_read_only(tmp_path, s
         assert client.wait(timeout=8) == 0
         assert tmux("list-sessions", "-F", "#{session_name}") == expected
         assert tmux('display-message', '-p', '-t', f'={expected}:', '#{pane_current_path}') == str(project)
-        listing = subprocess.check_output([str(SOURCE / "pimux"), "ls"], env=env, text=True)
+        listing = subprocess.check_output([str(SOURCE / "bin/pimux"), "ls"], env=env, text=True)
         assert f"{expected}  " in listing and "~view-" not in listing
     finally:
         if client.poll() is None:
@@ -635,7 +635,7 @@ def test_language_menu_persists_and_syncs_only_pimux_across_servers(server):
     def start(*args):
         master, slave = os.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 0, 0))
-        process = subprocess.Popen([str(SOURCE / "pimux"), *args], env=env, stdin=slave,
+        process = subprocess.Popen([str(SOURCE / "bin/pimux"), *args], env=env, stdin=slave,
                                    stdout=slave, stderr=slave, start_new_session=True)
         clients.append((process, master, slave))
         outputs[master] = bytearray()
@@ -661,7 +661,7 @@ def test_language_menu_persists_and_syncs_only_pimux_across_servers(server):
         os.write(tty, key)
 
     try:
-        help_text = subprocess.check_output([str(SOURCE / "pimux"), "-h"], env=env, text=True)
+        help_text = subprocess.check_output([str(SOURCE / "bin/pimux"), "-h"], env=env, text=True)
         assert "Personal terminal" in help_text and not preference.exists()
         first, first_tty = start("--system", "-n", "seed")
         second, second_tty = start("-n", "fresh")
@@ -679,7 +679,7 @@ def test_language_menu_persists_and_syncs_only_pimux_across_servers(server):
             assert set(before[socket].splitlines()) == set(tmux(
                 "-L", socket, "list-panes", "-a", "-F", "#{pane_id} #{pane_pid}"
             ).splitlines())
-        assert "个人工作终端" in subprocess.check_output([str(SOURCE / "pimux"), "-h"], env=env, text=True)
+        assert "个人工作终端" in subprocess.check_output([str(SOURCE / "bin/pimux"), "-h"], env=env, text=True)
         os.write(first_tty, b"\x1b")
         wait_for(lambda: "__client" not in tmux("show-messages", "-J"))
         os.write(first_tty, b"\x01/")
@@ -744,7 +744,7 @@ def test_default_runtime_isolates_system_server(tmp_path, server):
     try:
         subprocess.run(
             ['bash', '-c', 'source "$1"; configure_runtime; tmux new-session -d -s isolated',
-             'test', str(SOURCE / 'pimux')], env=env, check=True, capture_output=True,
+             'test', str(SOURCE / 'bin/pimux')], env=env, check=True, capture_output=True,
         )
         assert tmux('-L', 'pimux', 'list-sessions', '-F', '#{session_name}') == 'isolated'
         assert tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid}') == before
@@ -768,13 +768,13 @@ def test_search_gpu_popup_and_reload_preserve_running_panes(tmp_path, server):
     tmux('set-environment', '-g', 'PIMUX_RUNTIME_FILE', env['PIMUX_RUNTIME_FILE'])
     tmux('set-environment', '-g', 'PIMUX_LANGUAGE_FILE', env['PIMUX_LANGUAGE_FILE'])
     tmux('source-file', str(SOURCE / 'config/tmux.conf'))
-    tmux('set-option', '-g', '@pimux_launcher', str(SOURCE / 'pimux'))
+    tmux('set-option', '-g', '@pimux_launcher', str(SOURCE / 'bin/pimux'))
     # Literal brackets must not become a pattern; hidden windows are searchable.
     wanted = tmux('new-window', '-d', '-t', 'seed', '-n', 'Train[Fast]', '-P', '-F', '#{window_id}', 'sleep 60')
     before = tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid}')
     master, slave = os.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 32, 140, 0, 0))
-    client = subprocess.Popen([str(SOURCE / 'pimux'), '-n', 'seed'], env=env,
+    client = subprocess.Popen([str(SOURCE / 'bin/pimux'), '-n', 'seed'], env=env,
                               stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
     output = bytearray()
 
@@ -887,7 +887,7 @@ load_manager
 connect_session() { printf '\\nOPEN:%s:%s\\n' "$1" "$2"; }
 manager
 '''
-    process = subprocess.Popen(['bash', '-c', script, 'test', str(SOURCE / 'pimux')],
+    process = subprocess.Popen(['bash', '-c', script, 'test', str(SOURCE / 'bin/pimux')],
                                env=env, stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
     output = bytearray()
 
@@ -944,7 +944,7 @@ def test_gpu_mouse_wheel_scrolls_and_restores_terminal(tmp_path, server, exit_wi
     master, slave = os.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 20, 110, 0, 0))
     original_terminal = termios.tcgetattr(slave)
-    process = subprocess.Popen([str(SOURCE / 'pimux'), '__gpu'], env=env,
+    process = subprocess.Popen([str(SOURCE / 'bin/pimux'), '__gpu'], env=env,
                                stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
     output = bytearray()
     queries = bytearray()
@@ -1021,7 +1021,7 @@ exit "$UPDATE_DOWNLOAD_STATUS"
     log = tmp_path / 'download-path'
     env = dict(os.environ, PATH=f'{tmp_path}:{os.environ["PATH"]}',
                UPDATE_DOWNLOAD_LOG=str(log), UPDATE_DOWNLOAD_STATUS=str(download_status))
-    result = subprocess.run([str(SOURCE / 'pimux'), 'update'], env=env,
+    result = subprocess.run([str(SOURCE / 'bin/pimux'), 'update'], env=env,
                             capture_output=True, text=True)
     assert result.returncode == download_status
     assert ('UPDATE_EXECUTED' in result.stdout) == (download_status == 0)
@@ -1031,7 +1031,7 @@ exit "$UPDATE_DOWNLOAD_STATUS"
 def test_mouse_click_passes_through_tmux_popup_to_manager(server):
     env, tmux = server
     tmux('source-file', str(SOURCE / 'config/tmux.conf'))
-    tmux('set-option', '-g', '@pimux_launcher', str(SOURCE / 'pimux'))
+    tmux('set-option', '-g', '@pimux_launcher', str(SOURCE / 'bin/pimux'))
     tmux('set-environment', '-g', 'PIMUX_RUNTIME_FILE', env['PIMUX_RUNTIME_FILE'])
     tmux('set-environment', '-g', 'PIMUX_LANGUAGE_FILE', env['PIMUX_LANGUAGE_FILE'])
     original = tmux('display-message', '-p', '-t', 'seed', '#{window_id}')
@@ -1058,7 +1058,7 @@ def test_mouse_click_passes_through_tmux_popup_to_manager(server):
         socket = tmux('display-message', '-p', '#{socket_path}')
         # Fix the popup position so the terminal click has known screen coordinates.
         import shlex
-        command = shlex.join([str(SOURCE / 'pimux'), '__manager', socket, tty, 'windows'])
+        command = shlex.join([str(SOURCE / 'bin/pimux'), '__manager', socket, tty, 'windows'])
         popup = subprocess.Popen(['tmux', 'display-popup', '-E', '-c', tty,
                                   '-x', '0', '-y', '0', '-w', '100', '-h', '20', command], env=env)
         wait_for(lambda: '点击进入'.encode() in output)
@@ -1092,7 +1092,7 @@ def test_proxy_shell_apply_disable_restore_and_validation(tmp_path):
     proxy_file = tmp_path / 'proxy'
     env = {key: value for key, value in os.environ.items()
            if key.lower() not in ('http_proxy', 'https_proxy', 'all_proxy') and key not in ('TMUX', 'TMUX_PANE')}
-    env.update(PATH=f'{SOURCE}:{env["PATH"]}', PIMUX_PROXY_FILE=str(proxy_file),
+    env.update(PATH=f'{SOURCE / "bin"}:{env["PATH"]}', PIMUX_PROXY_FILE=str(proxy_file),
                HTTP_PROXY='http://inherited.example:8080', no_proxy='localhost,127.0.0.1')
     script = r'''set -e
 source "$1/lib/ui.bash"
@@ -1155,7 +1155,7 @@ def test_pins_persist_share_views_isolate_servers_and_keep_selection(tmp_path, s
     view = tmux('new-session', '-d', '-t', zeta, '-s', 'zeta-view', '-P', '-F', '#{session_id}')
     tmux('set-option', '-t', view, '@pimux_origin', zeta)
     prefix = ['bash', '-c', 'source "$1"; configure_runtime; load_manager; "$2" "${@:3}"',
-              'test', str(SOURCE / 'pimux')]
+              'test', str(SOURCE / 'bin/pimux')]
     processes = [subprocess.Popen([*prefix, 'toggle_session_pin', sid], env=env,
                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                  for sid in (alpha, view)]
@@ -1182,7 +1182,7 @@ load_manager
 connect_session() { printf '\\nOPEN:%s\\n' "$1"; }
 manager
 '''
-    process = subprocess.Popen(['bash', '-c', script, 'test', str(SOURCE / 'pimux')],
+    process = subprocess.Popen(['bash', '-c', script, 'test', str(SOURCE / 'bin/pimux')],
                                env=env, stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
     output = bytearray()
 
@@ -1218,7 +1218,7 @@ def test_copy_path_targets_only_requesting_client(tmp_path, server):
     directory = tmp_path / 'project "quoted" $literal'
     directory.mkdir()
     tmux('source-file', str(SOURCE / 'config/tmux.conf'))
-    tmux('set-option', '-g', '@pimux_launcher', str(SOURCE / 'pimux'))
+    tmux('set-option', '-g', '@pimux_launcher', str(SOURCE / 'bin/pimux'))
     tmux('set-environment', '-g', 'PIMUX_RUNTIME_FILE', env['PIMUX_RUNTIME_FILE'])
     tmux('set-environment', '-g', 'PIMUX_PINS_FILE', env['PIMUX_PINS_FILE'])
     tmux('new-window', '-t', 'seed', '-c', str(directory))
@@ -1278,7 +1278,7 @@ def test_proxy_panel_sets_disables_and_restores_preferences(tmp_path):
     env.pop('TMUX_PANE', None)
     master, slave = os.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 26, 120, 0, 0))
-    process = subprocess.Popen([str(SOURCE / 'pimux'), 'proxy'], env=env,
+    process = subprocess.Popen([str(SOURCE / 'bin/pimux'), 'proxy'], env=env,
                                stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
     output = bytearray()
     queries = bytearray()
@@ -1405,7 +1405,7 @@ def test_window_preview_reports_exit_code_and_preserves_panes(server):
 def test_proxy_icon_detects_legacy_foreground_process_without_restarting_it(server):
     env, tmux = server
     tmux('source-file', str(SOURCE / 'config/tmux.conf'))
-    tmux('set-option', '-t', 'seed', '@pimux_launcher', str(SOURCE / 'pimux'))
+    tmux('set-option', '-t', 'seed', '@pimux_launcher', str(SOURCE / 'bin/pimux'))
     # Keep the test independent of NVIDIA availability and asynchronous GPU output.
     right = tmux('show-options', '-gqv', 'status-right').removesuffix('#(#{q:@pimux_launcher} __gpu-status)') + 'cards'
     tmux('set-option', '-t', 'seed', 'status-right', right)
@@ -1443,13 +1443,13 @@ def test_proxy_icon_detects_legacy_foreground_process_without_restarting_it(serv
 def test_close_pane_confirms_and_targets_only_the_selected_split(server):
     env, tmux = server
     tmux('source-file', str(SOURCE / 'config/tmux.conf'))
-    tmux('set-option', '-g', '@pimux_launcher', str(SOURCE / 'pimux'))
+    tmux('set-option', '-g', '@pimux_launcher', str(SOURCE / 'bin/pimux'))
     survivor = tmux('display-message', '-p', '-t', 'seed:', '#{pane_id}')
     survivor_pid = tmux('display-message', '-p', '-t', survivor, '#{pane_pid}')
     closing = tmux('split-window', '-h', '-t', 'seed:', '-P', '-F', '#{pane_id}', 'sleep 60')
     master, slave = os.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 30, 120, 0, 0))
-    client = subprocess.Popen([str(SOURCE / 'pimux'), '-n', 'seed'], env=env,
+    client = subprocess.Popen([str(SOURCE / 'bin/pimux'), '-n', 'seed'], env=env,
                               stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
     output = bytearray()
     def wait_for(condition):

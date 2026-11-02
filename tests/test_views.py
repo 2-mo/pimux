@@ -86,7 +86,7 @@ def test_proxy_editor_accepts_short_addresses_and_ipv6():
 def test_proxy_edit_cancel_validation_and_mouse_use_same_persistence(tmp_path, monkeypatch):
     file = tmp_path / "proxy"
     monkeypatch.setenv("PIMUX_PROXY_FILE", str(file))
-    monkeypatch.setenv("PIMUX_LAUNCHER", str(Path(__file__).resolve().parents[1] / "pimux"))
+    monkeypatch.setenv("PIMUX_LAUNCHER", str(Path(__file__).resolve().parents[1] / "bin/pimux"))
     view = proxy_ui.ProxyPanel()
     view.refresh()
     assert view.mode == "inherit" and not view.url and not view.observed

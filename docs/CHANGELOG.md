@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.4
+
+- Show split workspaces, GPU details, environment defaults and proxy settings alongside the session manager in the README gallery.
+- Move the launcher to `bin/`, local installation to `scripts/`, and translated quick start and changelog to `docs/`.
+- Keep the public install URL and installed `pimux` command unchanged.
+
 ## 0.6.3
 
 - Show an actual main-interface capture in both quick-start READMEs.
