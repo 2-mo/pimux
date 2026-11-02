@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.1
+
+- Put Environment, Proxy, GPU, Ports and Help directly in the main `pimux` interface, with clickable entries and visible action keys.
+- Return from each page to the same session selection and search, including when an entry is clicked while searching.
+- Keep `pimux env`, `pimux proxy`, `pimux gpu`, `pimux ports` and `pimux help` as optional shortcuts.
+
 ## 0.6.0
 
 - Run CI once on main or a pull request; skip tag and documentation-only pushes, cancel superseded runs, and remove brittle layout assertions.

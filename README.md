@@ -43,7 +43,7 @@ PiMux is a workspace inside your existing terminal or SSH connection; it is not 
 
 ## Everyday commands
 
-Start with `pimux`. Inside the workspace, `Ctrl-a h` opens the menu with management, GPU details and help; the status bar keeps this shortcut visible.
+Start with `pimux`. The main interface has clickable **Env, Proxy, GPU, Ports and Help** entries at the top, with visible e / o / g / t / ? keys. Press `q` to return to the same session selection and search. The commands below are optional shortcuts. Inside a workspace, `Ctrl-a h` also opens the action menu.
 
 ```bash
 pimux                 # Session manager; never creates a session implicitly
@@ -87,13 +87,13 @@ In the manager, `n` creates a session with the current directory name prefilled:
 
 ## Ports and window previews
 
-Choose **Listening ports** from `Ctrl-a h`, or run `pimux ports`, to inspect local TCP listeners, owning processes, commands and working directories. Press `/` to filter by port, process or directory; Enter finishes typing and Esc clears the search. Use `pimux ports 8888` for an exact port lookup. Visibility follows system permissions. These are server listeners, not a service health check or your local forwarded addresses.
+Choose **Ports** in the main `pimux` interface to inspect local TCP listeners, owning processes, commands and working directories. The optional `pimux ports` shortcut and **Listening ports** in `Ctrl-a h` remain available. Press `/` to filter by port, process or directory; Enter finishes typing and Esc clears the search. Use `pimux ports 8888` for an exact port lookup. Visibility follows system permissions. These are server listeners, not a service health check or your local forwarded addresses.
 
 In the manager, select a window and press `d` to preview each pane's idle/alive state, working directory and last 60 lines of output. Selecting a session previews its current window. Exit codes are available for exited panes retained by tmux. Previews refresh every three seconds; scroll with the wheel or arrows, and use `q` / Esc to return to the same manager selection. Inspection does not change another client's selected window or send keys to applications.
 
 ## Environment defaults
 
-Run `pimux env`, or choose **Environment** from `Ctrl-a h`. The list distinguishes saved defaults, disabled entries and inherited values; Network proxy stays at the top as a shortcut. Press `/` to search names, Enter to view/edit, `n` to add, Space to enable/disable and `i` to restore inheritance. While editing, Enter saves, Esc cancels and F2 reveals or masks the value.
+Choose **Env** in the main `pimux` interface, use the optional `pimux env` shortcut, or choose **Environment** from `Ctrl-a h`. The list distinguishes saved defaults, disabled entries and inherited values; Network proxy stays at the top as a shortcut. Press `/` to search names, Enter to view/edit, `n` to add, Space to enable/disable and `i` to restore inheritance. While editing, Enter saves, Esc cancels and F2 reveals or masks the value.
 
 Settings are **PiMux-wide defaults**. New PiMux windows apply them automatically, and integrated Bash shells apply changes at the next prompt. Commands such as `pimux env set/on/off/reset` apply immediately to subsequent commands in an integrated shell. Older windows need a new shell: return and press `Ctrl-a c`; the panel explains when this is needed. Running programs retain their original environment.
 
@@ -113,7 +113,7 @@ A menu-opened page reads inherited values from the foreground process's startup 
 
 The small cyan `⛓︎` before the GPU circles appears when a proxy is detected in the active pane. PiMux uses the shell's report first. In older panes without a report, it reads the foreground process's startup environment on the five-second status refresh. With no proxy or unreadable process information, the icon stays hidden without reserving space. This indicates environment settings, not a connectivity test.
 
-Run `pimux proxy`, or choose **Network proxy** from `Ctrl-a h`. The panel separates PiMux preferences, the current terminal's reported proxy state and the saved address. Select with arrows and Enter, or click an action. Disabling keeps the address; using the startup environment restores each shell's original settings.
+Choose **Proxy** in the main `pimux` interface, use the optional `pimux proxy` shortcut, or choose **Network proxy** from `Ctrl-a h`. The panel separates PiMux preferences, the current terminal's reported proxy state and the saved address. Select with arrows and Enter, or click an action. Disabling keeps the address; using the startup environment restores each shell's original settings.
 
 Press `e` to edit inline. A short address such as `127.0.0.1:7890` is accepted. Enter saves and enables it, Esc cancels, and Ctrl-u clears the field. Invalid addresses show an inline error. Authentication is masked in both display and editing. For older panes, the panel labels detected settings as coming from the foreground process. A saved preference alone never marks a terminal as active. Process inspection sees the startup environment; later manual changes inside an older shell become visible when it starts a new foreground command, or after opening an integrated PiMux window.
 

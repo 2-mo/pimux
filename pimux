@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # pimux-managed: standalone personal terminal workspace.
 set -euo pipefail
-PIMUX_VERSION=0.6.0
+PIMUX_VERSION=0.6.1
 PIMUX_COMMAND=()
 PIMUX_TARGET_SOCKET=''
 PIMUX_SHARED_SERVER=false
@@ -66,7 +66,7 @@ usage() {
         cat <<'EOF'
 pimux · Personal terminal
 
-  pimux                 Open the manager; never create a session implicitly
+  pimux                 Open the main interface; never create a session implicitly
   pimux -n NAME         Create or enter a session, with independent window selection
   pimux ls [query]      List sessions and windows; filter names or directories
   pimux -h              Print this help
@@ -100,7 +100,7 @@ EOF
     cat <<'EOF'
 pimux · 个人工作终端
 
-  pimux                 打开管理列表；没有会话时显示新建提示
+  pimux                 打开主界面；没有会话时显示新建提示
   pimux -n NAME         创建或进入命名会话，每个终端独立切换窗口
   pimux ls [关键词]     查看会话和窗口，可按名称或目录筛选
   pimux -h              打印此帮助

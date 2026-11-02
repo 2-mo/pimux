@@ -777,7 +777,6 @@ def test_search_gpu_popup_and_reload_preserve_running_panes(tmp_path, server):
     client = subprocess.Popen([str(SOURCE / 'pimux'), '-n', 'seed'], env=env,
                               stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
     output = bytearray()
-    popups = []
 
     def wait_for(condition):
         deadline = time.monotonic() + 8
@@ -793,6 +792,15 @@ def test_search_gpu_popup_and_reload_preserve_running_panes(tmp_path, server):
         view = tmux('list-clients', '-F', '#{session_id}')
         os.write(master, b'\x01s')
         wait_for(lambda: '会话管理'.encode() in output)
+        for key, marker in [(b'e', '默认设置'.encode()), (b'o', 'PiMux 设置'.encode()), (b'g', b'GPU 0'),
+                            (b't', 'TCP 端口'.encode()), (b'?', '快捷键'.encode())]:
+            output.clear()
+            os.write(master, key)
+            wait_for(lambda: marker in output)
+            assert not tmux('display-message', '-p', '-t', f'{view}:', '#{pane_mode}')
+            output.clear()
+            os.write(master, b'q')
+            wait_for(lambda: '会话管理'.encode() in output)
         os.write(master, b'/missing-query')
         wait_for(lambda: '没有匹配'.encode() in output)
         os.write(master, b'\x1b')
@@ -830,19 +838,11 @@ def test_search_gpu_popup_and_reload_preserve_running_panes(tmp_path, server):
         wait_for(lambda: '会话管理'.encode() in output)
         os.write(master, b'q')
         wait_for(lambda: '__manager' not in tmux('show-messages', '-J'))
-        for action, marker in [('ports', b'8888'), ('proxy', 'PiMux 设置'.encode()),
-                               ('help', '快捷键'.encode()), ('path', '完整目录路径'.encode()),
-                               ('environment', '环境变量'.encode())]:
-            output.clear()
-            popup = subprocess.Popen([str(SOURCE / 'pimux'), '__client',
-                                      tmux('display-message', '-p', '#{socket_path}'),
-                                      os.ttyname(slave), action], env=env,
-                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            popups.append(popup)
-            wait_for(lambda: marker in output)
-            assert not tmux('display-message', '-p', '-t', f'{view}:', '#{pane_mode}')
-            os.write(master, b'q')
-            assert popup.wait(timeout=5) == 0
+        output.clear()
+        os.write(master, b'\x01P')
+        wait_for(lambda: '完整目录路径'.encode() in output)
+        os.write(master, b'q')
+        wait_for(lambda: '__path' not in tmux('show-messages', '-J'))
         tmux('set-option', '-t', view, 'status-interval', '17')
         os.write(master, b'\x01r')
         wait_for(lambda: tmux('show-options', '-qv', '-t', view, 'status-interval') == '5')
@@ -851,10 +851,6 @@ def test_search_gpu_popup_and_reload_preserve_running_panes(tmp_path, server):
         os.write(master, b'\x01d')
         assert client.wait(timeout=5) == 0
     finally:
-        for popup in popups:
-            if popup.poll() is None:
-                popup.terminate()
-                popup.wait(timeout=5)
         if client.poll() is None:
             client.terminate()
             client.wait(timeout=5)
@@ -1068,7 +1064,16 @@ def test_mouse_click_passes_through_tmux_popup_to_manager(server):
         popup = subprocess.Popen(['tmux', 'display-popup', '-E', '-c', tty,
                                   '-x', '0', '-y', '0', '-w', '100', '-h', '20', command], env=env)
         wait_for(lambda: '点击进入'.encode() in output)
-        os.write(master, b'\x1b[<0;20;7M\x1b[<0;20;7m')
+        output.clear()
+        os.write(master, b'/mouse-target')
+        wait_for(lambda: b'mouse-target' in output and b'[1/1]' in output)
+        output.clear()
+        os.write(master, b'\x1b[<0;3;4M\x1b[<0;3;4m')
+        wait_for(lambda: '默认设置'.encode() in output)
+        output.clear()
+        os.write(master, b'q')
+        wait_for(lambda: b'mouse-target' in output and b'[1/1]' in output)
+        os.write(master, b'\x1b[<0;20;5M\x1b[<0;20;5m')
         wait_for(lambda: tmux('list-clients', '-F', '#{window_id}') == wanted)
         assert popup.wait(timeout=5) == 0
         assert tmux('display-message', '-p', '-t', '=seed:', '#{window_id}') == original
