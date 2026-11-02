@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # pimux-managed: standalone personal terminal workspace.
 set -euo pipefail
-PIMUX_VERSION=0.5.0
+PIMUX_VERSION=0.5.1
 PIMUX_COMMAND=()
 PIMUX_TARGET_SOCKET=''
 PIMUX_SHARED_SERVER=false
@@ -518,6 +518,11 @@ update_pimux() (
 
 main() {
     local system=false client action sid root
+    if [[ ${1:-} == __proxy-status ]]; then
+        [[ $# == 2 ]] || return 2
+        load_gpu; python_view proxy_status "$2"
+        return
+    fi
     if [[ ${1:-} == __gpu-status ]]; then
         [[ $# == 1 ]] || return 2
         gpu_status

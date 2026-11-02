@@ -88,11 +88,11 @@ In the manager, select a window and press `d` to preview each pane's idle/alive 
 
 ## Network proxy
 
-The small cyan `⛓︎` before the GPU circles appears only when the active pane's shell reports a configured proxy. Otherwise it stays hidden without reserving any space, including in older shells that have not reported yet. This indicates environment settings, not a connectivity test.
+The small cyan `⛓︎` before the GPU circles appears when a proxy is detected in the active pane. PiMux uses the shell's report first. In older panes without a report, it reads the foreground process's startup environment on the five-second status refresh. With no proxy or unreadable process information, the icon stays hidden without reserving space. This indicates environment settings, not a connectivity test.
 
 Run `pimux proxy`, or choose **Network proxy** from `Ctrl-a h`. The panel separates PiMux preferences, the current terminal's reported proxy state and the saved address. Select with arrows and Enter, or click an action. Disabling keeps the address; using the startup environment restores each shell's original settings.
 
-Press `e` to edit inline. A short address such as `127.0.0.1:7890` is accepted. Enter saves and enables it, Esc cancels, and Ctrl-u clears the field. Invalid addresses show an inline error. Authentication is masked in both display and editing. A terminal that has not reported its environment is shown as unreported, rather than assuming a saved preference is already active.
+Press `e` to edit inline. A short address such as `127.0.0.1:7890` is accepted. Enter saves and enables it, Esc cancels, and Ctrl-u clears the field. Invalid addresses show an inline error. Authentication is masked in both display and editing. For older panes, the panel labels detected settings as coming from the foreground process. A saved preference alone never marks a terminal as active. Process inspection sees the startup environment; later manual changes inside an older shell become visible when it starts a new foreground command, or after opening an integrated PiMux window.
 
 ```bash
 pimux proxy                            # Open the settings panel
