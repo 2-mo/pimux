@@ -12,6 +12,8 @@
 curl -fsSL https://raw.githubusercontent.com/2-mo/pimux/main/install.sh | bash && export PATH="$HOME/.local/bin:$PATH"
 ```
 
+Debian/Ubuntu 会自动补齐 tmux 等终端依赖。
+
 ## 使用
 
 ```bash

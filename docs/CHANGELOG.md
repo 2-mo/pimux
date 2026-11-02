@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.5
+
+- Detect external dependency executables even after the launcher defines its `tmux` function, so a missing tmux triggers automatic installation on Debian/Ubuntu.
+- Align the fallback proxy glyph with the GPU circles in the README captures using shared font metrics.
+
 ## 0.6.4
 
 - Show split workspaces, GPU details, environment defaults and proxy settings alongside the session manager in the README gallery.

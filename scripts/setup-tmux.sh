@@ -113,7 +113,8 @@ install_starship() (
 install_dependencies() {
     local command missing=false
     for command in tmux infocmp flock timeout readlink curl ss; do
-        command -v "$command" >/dev/null 2>&1 || missing=true
+        # The launcher defines a tmux function; check executable files on PATH.
+        type -P "$command" >/dev/null 2>&1 || missing=true
     done
     if command -v infocmp >/dev/null 2>&1; then
         infocmp tmux-256color >/dev/null 2>&1 || missing=true
