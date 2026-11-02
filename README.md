@@ -21,7 +21,7 @@ pimux
 ```
 
 - Press `n` to create a session; select one and press Enter to open it.
-- Click **Env / Proxy / GPU / Ports / Help** at the top. `q` returns.
+- Click **Env / Proxy / GPU / Ports / IP / Help** at the top. `q` returns.
 - Inside a session: press and release `Ctrl-a`, then `h` for the menu or `d` to detach and keep tasks running.
 
 ## Update

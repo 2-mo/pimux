@@ -33,7 +33,7 @@ def test_installer_checks_external_tmux_before_installing_dependencies(tmp_path,
     present = tools / "present"
     present.write_text("#!/bin/sh\nexit 0\n")
     present.chmod(0o755)
-    dependencies = ["infocmp", "flock", "timeout", "curl", "ss"]
+    dependencies = ["infocmp", "flock", "timeout", "curl", "ss", "ip"]
     if tmux_present:
         dependencies.append("tmux")
     for name in dependencies:
@@ -153,6 +153,18 @@ def test_installed_gpu_dashboard_uses_its_own_runtime(tmp_path, monkeypatch):
                             capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     assert '8888' in result.stdout and 'demo' in result.stdout
+    ip = bindir / 'ip'
+    ip.write_text('''#!/bin/sh
+case "$*" in
+    *address*) printf '%s' '[{"ifname":"eth0","flags":["UP"],"addr_info":[{"family":"inet","local":"192.0.2.23","prefixlen":24}]}]' ;;
+    *) printf '[]' ;;
+esac
+''')
+    ip.chmod(0o755)
+    result = subprocess.run([str(home / '.local/bin/pimux'), 'ip', '--once'], env=env,
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert '192.0.2.23/24' in result.stdout
     result = subprocess.run([str(home / '.local/bin/pimux'), '__proxy'], env=env,
                             capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
@@ -830,7 +842,7 @@ def test_search_gpu_popup_and_reload_preserve_running_panes(tmp_path, server):
         os.write(master, b'\x01s')
         wait_for(lambda: '会话管理'.encode() in output)
         for key, marker in [(b'e', '默认设置'.encode()), (b'o', 'PiMux 设置'.encode()), (b'g', b'GPU 0'),
-                            (b't', 'TCP 端口'.encode()), (b'?', '快捷键'.encode())]:
+                            (b't', 'TCP 端口'.encode()), (b'i', 'IP 与网络'.encode()), (b'?', '快捷键'.encode())]:
             output.clear()
             os.write(master, key)
             wait_for(lambda: marker in output)

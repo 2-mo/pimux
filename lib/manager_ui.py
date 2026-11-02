@@ -104,7 +104,7 @@ def render(entries, navigation, *, width, height, selected, count, query="", sea
         button = text(key, "bold color(215) on #272d39")
         button.append(" " + label, style=TEXT + " on #272d39")
         actions.append_text(button)
-        actions.append("  ")
+        actions.append(" ")
     actions.no_wrap, actions.overflow = True, "crop"
     body = [heading, search_bar, actions]
     body.extend(entry_row(entry, width, searching=bool(query)) for entry in entries)

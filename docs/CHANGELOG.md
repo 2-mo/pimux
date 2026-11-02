@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.7.0
+
+- Add IP and network inspection to the main interface, action menu and optional `pimux ip` shortcut.
+- Show IPv4/IPv6 addresses, multiple CIDR subnets and routes across routing tables, with optional Tailscale self addresses and MagicDNS names.
+- Keep common interfaces readable; toggle all interfaces with a and query direct public egress only on p. Refreshing local information never polls the public service.
+- Fit all six main navigation entries in 40 columns in both languages and preserve the session selection when returning.
+
 ## 0.6.5
 
 - Detect external dependency executables even after the launcher defines its `tmux` function, so a missing tmux triggers automatic installation on Debian/Ubuntu.

@@ -35,7 +35,7 @@ manager() (
     local query='' searching=false suggestion current_window='' preview_target window_count
     local navigation=false button column width nav_index
     local -a roots=() windows=() titles=() programs=() paths=() counts=() pinned_ids=() other_ids=()
-    local -a nav_keys=(e o g t '?') nav_labels=('环境' '代理' '显卡' '端口' '帮助') nav_starts=() nav_ends=()
+    local -a nav_keys=(e o g t i '?') nav_labels=('环境' '代理' '显卡' '端口' 'IP' '帮助') nav_starts=() nav_ends=()
     local -A expanded=() pinned=() names=()
     if [[ -n $client ]]; then
         current=$(logical_session "$(client_session "$client")")
@@ -63,11 +63,11 @@ manager() (
         nav_starts=(); nav_ends=(); column=2
         for nav_index in "${!nav_keys[@]}"; do
             button=$(tr_ui "${nav_labels[nav_index]}")
-            if [[ $PIMUX_LANGUAGE == zh ]]; then width=6
+            if [[ $PIMUX_LANGUAGE == zh && $button != IP ]]; then width=6
             else width=$((2 + ${#button})); fi
             (( column + width - 1 <= cols )) || break
             nav_starts+=("$column"); nav_ends+=("$((column + width - 1))")
-            column=$((column + width + 2))
+            column=$((column + width + 1))
         done
         finish=$((offset + visible))
         (( finish <= count )) || finish=$count
@@ -182,13 +182,14 @@ manager() (
         case $key in
             /) searching=true; selected=0; offset=0 ;;
             q|$'\e') return ;;
-            e|o)
+            e|o|i)
                 local -a context=()
                 if [[ -n $client ]]; then
                     sid=$(client_session "$client")
                     context=("${PIMUX_COMMAND[0]}" "$PIMUX_TARGET_SOCKET" "$(tmux display-message -p -t "$sid:" '#{pane_id}')")
                 fi
-                if [[ $key == e ]]; then manager_view environment_ui "${context[@]}"
+                if [[ $key == i ]]; then manager_view network "${context[@]}"
+                elif [[ $key == e ]]; then manager_view environment_ui "${context[@]}"
                 else manager_view proxy_ui "${context[@]}"; fi
                 ;;
             g) manager_view gpu ;;
