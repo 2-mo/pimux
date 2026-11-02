@@ -9,10 +9,9 @@ from urllib.parse import urlsplit
 
 from rich.console import Group
 from rich.panel import Panel
-from rich.segment import Segment, Segments
 from rich.text import Text
 
-from gpu_ui import MUTED_STYLE, TITLE_STYLE, console, key_hints, run_screen, tr
+from gpu_ui import MUTED_STYLE, TITLE_STYLE, console, edit_line, input_field, key_hints, run_screen, screen, tr
 from inspect_ui import text
 from proxy_status import process_proxy_state
 
@@ -139,23 +138,8 @@ class ProxyPanel:
                         self.editing = False
                 except ValueError as error:
                     self.error = str(error)
-            elif name in {"KEY_LEFT", "KEY_RIGHT"}:
-                self.cursor = max(0, min(len(self.buffer), self.cursor + (-1 if name == "KEY_LEFT" else 1)))
-            elif name in {"KEY_HOME", "\x01"}:
-                self.cursor = 0
-            elif name in {"KEY_END", "\x05"}:
-                self.cursor = len(self.buffer)
-            elif name == "\x15":
-                self.buffer, self.cursor = "", 0
-            elif name in {"KEY_BACKSPACE", "\x7f", "\x08"}:
-                if self.cursor:
-                    self.buffer = self.buffer[:self.cursor - 1] + self.buffer[self.cursor:]
-                    self.cursor -= 1
-            elif name == "KEY_DELETE":
-                self.buffer = self.buffer[:self.cursor] + self.buffer[self.cursor + 1:]
-            elif name.isprintable() and not name.startswith(("KEY_", "MOUSE_")):
-                self.buffer = self.buffer[:self.cursor] + name + self.buffer[self.cursor:]
-                self.cursor += len(name)
+            else:
+                self.buffer, self.cursor = edit_line(self.buffer, self.cursor, name)
             return False
         if name == "MOUSE_LEFT":
             _, y = key.mouse_xy
@@ -198,11 +182,7 @@ class ProxyPanel:
         body.append(Panel(Group(*settings), border_style="#454957", padding=(0, 1) if compact else (1, 2)))
         self.action_rows = {}
         if self.editing:
-            shown = masked(self.buffer, editing=True) + " "
-            available = max(1, width - 4)
-            start = max(0, self.cursor - available + 1)
-            field = text(shown[start:start + available], "on #272b34")
-            field.stylize("reverse bold", self.cursor - start, self.cursor - start + 1)
+            field = input_field(masked(self.buffer, editing=True), self.cursor, width - 4)
             body.extend([text(tr("Proxy address", "代理地址"), "bold #63c5f8"), field,
                          text(tr("Example: 127.0.0.1:7890 · HTTP / HTTPS / SOCKS5", "例如 127.0.0.1:7890 · 支持 HTTP / HTTPS / SOCKS5"), MUTED_STYLE)])
         else:
@@ -241,10 +221,7 @@ class ProxyPanel:
             hints = hints[:2] if self.editing else [("↑↓ Enter", ""), ("e", tr("edit", "编辑")), ("q", tr("back", "返回"))]
         footer = key_hints(hints)
         footer.no_wrap, footer.overflow = True, "ellipsis"
-        feedback_lines = console.render_lines(feedback, options, pad=False)[:2]
-        lines = console.render_lines(Group(*body), options, pad=False)[:max(0, height - len(feedback_lines) - 1)]
-        return Group(Segments([segment for line in [*lines, *feedback_lines]
-                               for segment in [*line, Segment.line()]]), footer)
+        return screen(Group(*body), footer, width, height, message=feedback)
 
 
 def main(argv=None):
@@ -254,7 +231,8 @@ def main(argv=None):
     if len(args.context) not in {0, 3}:
         parser.error("Expected tmux binary, socket and pane")
     view = ProxyPanel(args.context)
-    return run_screen(view.render, view.on_key, view.refresh, interval=1)
+    return run_screen(view.render, view.on_key, view.refresh, interval=1,
+                      can_refresh=lambda: not view.editing)
 
 
 if __name__ == "__main__":

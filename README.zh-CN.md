@@ -54,12 +54,16 @@ pimux ls              # 列出会话、窗口和目录
 pimux ls project      # 筛选列表
 pimux gpu             # 显卡详情
 pimux ports           # 端口、占用进程和工作目录；也可加端口号
-pimux proxy           # 打开代理设置面板
+pimux env             # 默认环境变量，内含代理设置入口
+pimux proxy           # 直接打开代理设置面板
+pimux help            # 可搜索的帮助页
 pimux doctor          # 版本、颜色、剪贴板诊断
 pimux reload          # 热重载，不重启任务
 pimux update          # 更新到最新版，保留运行中的任务
 pimux --version
 ```
+
+`pimux help` 或 `Ctrl-a /` 打开可搜索的帮助弹窗，展示实际快捷键；帮助、路径与详情页使用统一的底部操作栏，`q` / Esc 返回。
 
 先按 `Ctrl-a` 并松开，再按操作键。等待按键时，状态栏会显示亮橙底深色字的提示块和常用操作；按 Esc 取消并恢复平时的状态栏：
 
@@ -75,6 +79,7 @@ pimux --version
 | `\|` / `-` | 左右 / 上下分屏 |
 | 方向键 | 选择 pane |
 | `z` | 放大 / 恢复 pane |
+| `x` | 确认后关闭选中分屏及其中的程序 |
 | `[` / `]` | 复制模式 / 粘贴 tmux 缓冲区 |
 | `P` / `y` | 查看完整路径 / 复制当前路径 |
 | `/` | 快捷键帮助 |
@@ -87,6 +92,24 @@ pimux --version
 `Ctrl-a h → 端口查看` 或 `pimux ports` 显示本机 TCP 监听地址、占用进程、启动命令和工作目录。按 `/` 输入端口、进程名或目录筛选；Enter 结束输入，Esc 清空搜索。也可用 `pimux ports 8888` 精确查看一个端口。读取范围由系统权限决定；这里只显示服务器监听情况，不代表服务健康或本机转发地址。
 
 管理列表中选中窗口后按 `d`，可查看各 pane 的空闲／进程存活状态、工作目录和最近 60 行输出；选中会话时预览其当前窗口。已退出 pane 若被 tmux 保留，会显示退出码。预览每 3 秒刷新，滚轮或方向键滚动，`q` / Esc 回到管理列表，保留原选中项。查看不会切换其他客户端的窗口或向程序发送按键。
+
+## 环境变量
+
+运行 `pimux env`，或打开 `Ctrl-a h → 环境变量`。列表区分已保存的默认值、停用项和继承值，网络代理保留为首行的快捷入口。按 `/` 搜索变量名，Enter 查看／编辑，`n` 新增，Space 启停，`i` 恢复继承；编辑时 Enter 保存，Esc 取消，F2 显示／隐藏值。
+
+这些设置是 **PiMux 的默认环境**。新 PiMux 窗口自动应用，已集成的 Bash 在下次提示符应用；通过 shell 中的 `pimux env set/on/off/reset` 修改会立即用于后续命令。旧窗口需要返回后用 `Ctrl-a c` 新开一个窗口，面板会提示。已运行的程序保留原环境。
+
+```bash
+pimux env set HF_HOME /data/models    # 按原样保存并导出
+pimux env off HF_HOME                # 取消导出，保留保存的值
+pimux env on HF_HOME                 # 重新启用保存的值
+pimux env reset HF_HOME              # 恢复各 shell 原先继承的值与导出状态
+pimux env show HF                    # 以文字查看匹配的变量，敏感值仍遮蔽
+```
+
+值按原样保存，允许空值，不执行 `$()` 或 `$VAR` 等 shell 表达式。未改变的默认项不会反复覆盖手动 `export`。PATH、HOME、tmux 与虚拟环境工具维护的变量可查看但只读；代理地址由代理入口统一管理，`no_proxy` / `NO_PROXY` 可以在环境页单独设置。配置保存在 `~/.config/pimux/environment.json`，仅本人可读写，Token、密码等变量默认遮蔽。
+
+菜单打开时，继承值来自当前前台进程的启动环境；直接调用命令时，也可查看该命令收到的环境。保存的默认值与正在运行的程序环境分别呈现。
 
 ## 网络代理
 
@@ -147,7 +170,7 @@ pimux uninstall
 
 ```bash
 uv sync
-uv run python -m pytest tests/test_pimux.py tests/test_gpu.py tests/test_views.py
+uv run python -m pytest tests/test_pimux.py tests/test_gpu.py tests/test_views.py tests/test_environment.py
 bash scripts/package.sh
 ```
 

@@ -17,5 +17,7 @@ if command -v starship >/dev/null 2>&1; then
     fi
 fi
 
+source "$(dirname -- "${BASH_SOURCE[0]}")/environment.bash"
+pimux_environment_shell_init
 source "$(dirname -- "${BASH_SOURCE[0]}")/proxy.bash"
 pimux_proxy_shell_init

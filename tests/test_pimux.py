@@ -104,6 +104,9 @@ def test_installed_gpu_dashboard_uses_its_own_runtime(tmp_path, monkeypatch):
     smi.write_text('#!/bin/sh\necho "0, Installed GPU, 50, 1024, 8192, 50, 100, 250"\n')
     smi.chmod(0o755)
     env = dict(os.environ, HOME=str(home), PATH=f'{bindir}:{os.environ["PATH"]}')
+    env['PIMUX_ENV_FILE'] = str(home / '.config/pimux/environment.json')
+    env.pop('TMUX', None)
+    env.pop('TMUX_PANE', None)
     result = subprocess.run([str(home / '.local/bin/pimux'), '__gpu'], env=env,
                             capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
@@ -119,6 +122,17 @@ def test_installed_gpu_dashboard_uses_its_own_runtime(tmp_path, monkeypatch):
                             capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     assert 'PiMux' in result.stdout
+    result = subprocess.run([str(home / '.local/bin/pimux'), 'env', 'set', 'HF_HOME', '/data/my models/$literal'],
+                            env=env, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    result = subprocess.run(['bash', '--rcfile', str(home / '.config/pimux/shell.bash'),
+                             '-ic', '[[ $HF_HOME == "/data/my models/"\'$literal\' ]]'],
+                            env=env, capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    for command in ('__env', 'help'):
+        result = subprocess.run([str(home / '.local/bin/pimux'), command], env=env,
+                                capture_output=True, text=True)
+        assert result.returncode == 0 and 'PiMux' in result.stdout, result.stderr
     result = subprocess.run([str(runtime), '-c',
                              'import importlib.util; import rich, blessed; '
                              'assert importlib.util.find_spec("pytest") is None'],
@@ -133,6 +147,7 @@ def test_shell_initializes_starship_when_only_environment_was_inherited(tmp_path
     env.pop('TMUX', None)
     env.pop('TMUX_PANE', None)
     env['PIMUX_PROXY_FILE'] = str(tmp_path / 'proxy')
+    env['PIMUX_ENV_FILE'] = str(tmp_path / 'environment.json')
     script = '''set -e
 source "$1"
 declare -F starship_precmd >/dev/null
@@ -161,6 +176,7 @@ def server(tmp_path):
     env["PIMUX_LANGUAGE_FILE"] = str(tmp_path / "language")
     env['PIMUX_PINS_FILE'] = str(tmp_path / 'pinned-sessions')
     env['PIMUX_PROXY_FILE'] = str(tmp_path / 'proxy')
+    env['PIMUX_ENV_FILE'] = str(tmp_path / 'environment.json')
     Path(env["PIMUX_LANGUAGE_FILE"]).write_text("zh\n")
 
     def tmux(*args):
@@ -686,8 +702,9 @@ def test_language_menu_persists_and_syncs_only_pimux_across_servers(server):
         wait_for(lambda: "__client" not in tmux("show-messages", "-J"))
         os.write(first_tty, b"\x01/")
         wait_for(lambda: "新建 shell".encode() in outputs[first_tty])
+        assert not tmux("list-clients", "-F", "#{pane_mode}")
         os.write(first_tty, b"q")
-        wait_for(lambda: not tmux("list-clients", "-F", "#{pane_mode}"))
+        wait_for(lambda: "__help" not in tmux("show-messages", "-J"))
         for process, tty in [(first, first_tty), (second, second_tty)]:
             os.write(tty, b"\x01d")
             wait_for(lambda: process.poll() is not None)
@@ -715,7 +732,7 @@ def test_language_menu_persists_and_syncs_only_pimux_across_servers(server):
         os.write(third_tty, b"\x01/")
         wait_for(lambda: b"New shell window" in outputs[third_tty])
         os.write(third_tty, b"q")
-        wait_for(lambda: not tmux("-L", "parallel", "list-clients", "-F", "#{pane_mode}"))
+        wait_for(lambda: "__help" not in tmux("-L", "parallel", "show-messages", "-J"))
         outputs[third_tty].clear()
         os.write(third_tty, b"\x01h")
         wait_for(lambda: b"Work terminal" in outputs[third_tty])
@@ -831,7 +848,9 @@ def test_search_gpu_popup_and_reload_preserve_running_panes(tmp_path, server):
         wait_for(lambda: '会话管理'.encode() in output)
         os.write(master, b'q')
         wait_for(lambda: '__manager' not in tmux('show-messages', '-J'))
-        for action, marker in [('ports', b'8888'), ('proxy', 'PiMux 设置'.encode())]:
+        for action, marker in [('ports', b'8888'), ('proxy', 'PiMux 设置'.encode()),
+                               ('help', '快捷键'.encode()), ('path', '完整目录路径'.encode()),
+                               ('environment', '环境变量'.encode())]:
             output.clear()
             popup = subprocess.Popen([str(SOURCE / 'pimux'), '__client',
                                       tmux('display-message', '-p', '#{socket_path}'),
@@ -839,6 +858,7 @@ def test_search_gpu_popup_and_reload_preserve_running_panes(tmp_path, server):
                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             popups.append(popup)
             wait_for(lambda: marker in output)
+            assert not tmux('display-message', '-p', '-t', f'{view}:', '#{pane_mode}')
             os.write(master, b'q')
             assert popup.wait(timeout=5) == 0
         tmux('set-option', '-t', view, 'status-interval', '17')
@@ -1428,6 +1448,53 @@ def test_proxy_icon_detects_legacy_foreground_process_without_restarting_it(serv
         assert '⛓' not in rendered and rendered == 'cards'
         assert tmux('display-message', '-p', '-t', pane, '#{pane_pid}') == pid
         assert tmux('display-message', '-p', '-t', pane, '#{pane_dead}') == '0'
+    finally:
+        if client.poll() is None:
+            client.terminate()
+            client.wait(timeout=5)
+        os.close(master)
+        os.close(slave)
+
+def test_close_pane_confirms_and_targets_only_the_selected_split(server):
+    env, tmux = server
+    tmux('source-file', str(SOURCE / 'pimux.conf'))
+    tmux('set-option', '-g', '@pimux_launcher', str(SOURCE / 'pimux'))
+    survivor = tmux('display-message', '-p', '-t', 'seed:', '#{pane_id}')
+    survivor_pid = tmux('display-message', '-p', '-t', survivor, '#{pane_pid}')
+    closing = tmux('split-window', '-h', '-t', 'seed:', '-P', '-F', '#{pane_id}', 'sleep 60')
+    master, slave = os.openpty()
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 30, 120, 0, 0))
+    client = subprocess.Popen([str(SOURCE / 'pimux'), '-n', 'seed'], env=env,
+                              stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
+    output = bytearray()
+    def wait_for(condition):
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            if condition():
+                return
+            if select.select([master], [], [], .05)[0]:
+                output.extend(os.read(master, 65536))
+        pytest.fail(output.decode(errors='replace')[-1500:])
+    def prefix(key):
+        os.write(master, b'\x01')
+        wait_for(lambda: tmux('list-clients', '-F', '#{client_prefix}') == '1')
+        os.write(master, key)
+    try:
+        wait_for(lambda: b'Ctrl-a' in output)
+        prefix(b'x')
+        wait_for(lambda: '关闭当前分屏'.encode() in output)
+        output.clear()
+        os.write(master, b'n')
+        wait_for(lambda: b'Ctrl-a' in output)
+        assert closing in tmux('list-panes', '-t', 'seed:', '-F', '#{pane_id}').splitlines()
+        output.clear()
+        prefix(b'x')
+        wait_for(lambda: '关闭当前分屏'.encode() in output)
+        os.write(master, b'y')
+        wait_for(lambda: tmux('list-panes', '-t', 'seed:', '-F', '#{pane_id}') == survivor)
+        assert tmux('display-message', '-p', '-t', survivor, '#{pane_pid}') == survivor_pid
+        prefix(b'd')
+        assert client.wait(timeout=5) == 0
     finally:
         if client.poll() is None:
             client.terminate()

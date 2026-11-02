@@ -7,7 +7,7 @@ import sys
 from rich.console import Group
 from rich.text import Text
 
-from gpu_ui import MUTED_STYLE, TITLE_STYLE, console, key_hints, run_screen, tr
+from gpu_ui import MUTED_STYLE, TITLE_STYLE, console, key_hints, run_screen, screen, tr
 
 
 def text(value, style=""):
@@ -89,11 +89,13 @@ class Document:
             hints = ([("/", "")] if self.searchable else []) + [("↑↓ PgUp/Dn", ""), ("q", tr("back", "返回"))]
         footer = key_hints(hints)
         footer.no_wrap, footer.overflow = True, "ellipsis"
-        return Group(heading, *search, Text(""), *lines[self.offset:self.offset + self.page_size], footer)
+        return screen(Group(heading, *search, Text(""), *lines[self.offset:self.offset + self.page_size]),
+                      footer, width, height)
 
     def run(self, *, once=False):
         if once or not console.is_terminal or not sys.stdin.isatty():
             self.refresh()
             console.print(Group(text(f"PiMux · {self.title}", TITLE_STYLE), *self.lines()))
             return int(bool(self.error))
-        return run_screen(self.render, self.on_key, self.refresh, interval=3)
+        return run_screen(self.render, self.on_key, self.refresh, interval=3,
+                          can_refresh=lambda: not self.searching)

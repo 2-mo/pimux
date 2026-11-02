@@ -19,7 +19,7 @@ from rich.console import Group
 from rich.table import Column, Table
 from rich.text import Text
 
-from gpu_ui import MUTED_STYLE, SELECTED_STYLE, TITLE_STYLE, console, key_hints, status_text, run_screen, tr
+from gpu_ui import MUTED_STYLE, SELECTED_STYLE, TITLE_STYLE, console, key_hints, status_text, run_screen, screen, tr
 
 _FIELDS = "index,name,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw,power.limit"
 
@@ -418,7 +418,7 @@ class Monitor:
                 footer = candidate
         footer.no_wrap = True
         footer.overflow = "ellipsis"
-        return Group(heading, *content, footer)
+        return screen(Group(heading, *content), footer, width, height)
 
 
 def main(argv=None):
