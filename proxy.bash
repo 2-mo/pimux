@@ -145,13 +145,16 @@ pimux_proxy_shell_init() {
     done
     PROMPT_COMMAND+=(pimux_proxy_prompt)
     pimux() {
-        local status=0
-        command pimux "$@" || status=$?
-        if (( status == 0 )) && [[ ${1:-} == proxy ]]; then
+        local PIMUX_COMMAND_STATUS=0
+        command pimux "$@" || PIMUX_COMMAND_STATUS=$?
+        if (( PIMUX_COMMAND_STATUS == 0 )) && [[ ${1:-} == proxy ]]; then
             case ${2:-} in set|on|off|reset) pimux_apply_proxy force ;; *) pimux_apply_proxy ;; esac
             pimux_report_proxy
         fi
-        return "$status"
+        if (( PIMUX_COMMAND_STATUS == 0 )) && [[ ${1:-} == env ]] && declare -F pimux_apply_environment >/dev/null; then
+            case ${2:-} in set|on|off|reset) pimux_apply_environment force "${3:-}" ;; *) pimux_apply_environment ;; esac
+        fi
+        return "$PIMUX_COMMAND_STATUS"
     }
     pimux_apply_proxy
     pimux_report_proxy

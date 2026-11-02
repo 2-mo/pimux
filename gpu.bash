@@ -15,5 +15,5 @@ python_view() {
         return 1
     fi
     export PIMUX_LANGUAGE PIMUX_LAUNCHER
-    exec "$python" "$directory/$view.py" "$@"
+    exec "$python" -E "$directory/$view.py" "$@"
 }

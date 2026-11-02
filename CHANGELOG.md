@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.0
+
+- Add `pimux env` for searchable environment defaults: edit literal values, enable/disable variables, restore inheritance, and open proxy settings from the same page.
+- Apply defaults in PiMux Bash shells while preserving startup values, export flags, manual overrides and running programs. Store settings atomically with owner-only access; mask sensitive values by default.
+- Replace raw keyboard help with a searchable popup using actual bindings, and display full directory paths in a client-local view.
+- Align page titles, popup sizes, bottom action bars and editing controls; support wide-character input and suppress manual-refresh shortcuts while typing.
+- Expose closing the selected pane in the menu and help, with Ctrl-a x confirmation that targets the original pane.
+
 ## 0.5.1
 
 - Restore the proxy icon in older panes that have no PiMux shell report by inspecting the foreground process's startup environment.

@@ -52,12 +52,16 @@ pimux ls              # List sessions, windows and directories
 pimux ls project      # Filter the listing
 pimux gpu             # Live GPU details
 pimux ports           # Listeners, processes and directories; optionally add a port
-pimux proxy           # Open proxy settings
+pimux env             # Environment defaults, including the proxy shortcut
+pimux proxy           # Open proxy settings directly
+pimux help            # Searchable help
 pimux doctor          # Version, tmux, color and clipboard diagnostics
 pimux reload          # Reload without restarting tasks
 pimux update          # Install the latest release without restarting tasks
 pimux --version
 ```
+
+`pimux help` or `Ctrl-a /` opens searchable help from the actual bindings. Help, paths and detail views use the same bottom action bar; `q` / Esc returns.
 
 Press `Ctrl-a`, release it, then press the action key. A bright orange badge shows that PiMux is waiting for the next key, alongside common actions. Esc cancels and restores the normal status bar:
 
@@ -73,6 +77,7 @@ Press `Ctrl-a`, release it, then press the action key. A bright orange badge sho
 | `\|` / `-` | Split left/right / top/bottom |
 | Arrow keys | Select a pane |
 | `z` | Zoom or restore the pane |
+| `x` | Close the selected pane and its programs, after confirmation |
 | `[` / `]` | Copy mode / paste tmux's buffer |
 | `P` / `y` | Full directory path / copy current path |
 | `/` | Keyboard help |
@@ -85,6 +90,24 @@ In the manager, `n` creates a session with the current directory name prefilled:
 Choose **Listening ports** from `Ctrl-a h`, or run `pimux ports`, to inspect local TCP listeners, owning processes, commands and working directories. Press `/` to filter by port, process or directory; Enter finishes typing and Esc clears the search. Use `pimux ports 8888` for an exact port lookup. Visibility follows system permissions. These are server listeners, not a service health check or your local forwarded addresses.
 
 In the manager, select a window and press `d` to preview each pane's idle/alive state, working directory and last 60 lines of output. Selecting a session previews its current window. Exit codes are available for exited panes retained by tmux. Previews refresh every three seconds; scroll with the wheel or arrows, and use `q` / Esc to return to the same manager selection. Inspection does not change another client's selected window or send keys to applications.
+
+## Environment defaults
+
+Run `pimux env`, or choose **Environment** from `Ctrl-a h`. The list distinguishes saved defaults, disabled entries and inherited values; Network proxy stays at the top as a shortcut. Press `/` to search names, Enter to view/edit, `n` to add, Space to enable/disable and `i` to restore inheritance. While editing, Enter saves, Esc cancels and F2 reveals or masks the value.
+
+Settings are **PiMux-wide defaults**. New PiMux windows apply them automatically, and integrated Bash shells apply changes at the next prompt. Commands such as `pimux env set/on/off/reset` apply immediately to subsequent commands in an integrated shell. Older windows need a new shell: return and press `Ctrl-a c`; the panel explains when this is needed. Running programs retain their original environment.
+
+```bash
+pimux env set HF_HOME /data/models    # Save and export a literal value
+pimux env off HF_HOME                # Unset it, keeping the saved value
+pimux env on HF_HOME                 # Re-enable the saved value
+pimux env reset HF_HOME              # Restore each shell's inherited value/export state
+pimux env show HF                    # Print matching variables with sensitive values masked
+```
+
+Values are literal text, may be empty, and never evaluate shell expressions such as `$()` or `$VAR`. Unchanged defaults do not repeatedly overwrite manual exports. Variables maintained by the shell, tmux or environment tools, such as PATH and HOME, are visible but read only. Proxy addresses use the dedicated proxy entry; `no_proxy` / `NO_PROXY` may be set separately here. Settings live in `~/.config/pimux/environment.json` with owner-only access. Token/password variables are masked by default.
+
+A menu-opened page reads inherited values from the foreground process's startup environment. A direct command can also inspect the environment it received. Saved defaults are distinguished from running-program values.
 
 ## Network proxy
 
@@ -145,7 +168,7 @@ The workspace launcher is Bash; the GPU dashboard uses Python 3.10+, Rich and Bl
 
 ```bash
 uv sync
-uv run python -m pytest tests/test_pimux.py tests/test_gpu.py tests/test_views.py
+uv run python -m pytest tests/test_pimux.py tests/test_gpu.py tests/test_views.py tests/test_environment.py
 bash scripts/package.sh
 ```
 

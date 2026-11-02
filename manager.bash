@@ -89,7 +89,7 @@ manager() (
         visible=$((rows > 8 ? rows - 8 : 1))
         (( selected >= offset )) || offset=$selected
         (( selected < offset + visible )) || offset=$((selected - visible + 1))
-        printf '\033[H\033[2J\033[38;2;183;161;232m pimux · %s\033[0m\n' "$(tr_ui '会话管理')"
+        printf '\033[H\033[2J\033[38;2;183;161;232m PiMux · %s\033[0m\n' "$(tr_ui '会话管理')"
         printf_ui ' 搜索：%s  [%s/%s]\n\n' "$query" "$((count > 0 ? selected + 1 : 0))" "$count"
         if (( count == 0 )); then
             if [[ -n $query ]]; then printf_ui ' 没有匹配的窗口，Esc 清除搜索。\n'

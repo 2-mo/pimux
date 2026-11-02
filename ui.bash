@@ -1,5 +1,10 @@
 # pimux-managed: English / Simplified Chinese UI and language preference.
 declare -A PIMUX_EN=(
+    ['环境变量']='Environment'
+    ['关闭当前分屏']='Close current pane'
+    ['关闭当前分屏及其中的程序？[y/N]']='Close this pane and its programs? [y/N]'
+    ['关闭当前分屏；结束其中的程序，需确认']='Close the current pane and its programs, with confirmation'
+    ['Enter / q / Esc 返回。']='Enter / q / Esc to return.'
     ['界面的运行环境未就绪，请运行 pimux update 完成安装。']='The view environment is missing. Run pimux update to complete installation.'
     ['端口查看']='Listening ports'
     [' / 搜索  Enter 进入  d 预览  q 返回']=' / search  Enter open  d preview  q back'
@@ -225,10 +230,10 @@ show_menu() {
     name=$(tmux display-message -p -t "$(logical_session "$target"):" '#{session_name}')
     if session_pin_names | grep -Fxq -- "$name"; then pin_label='取消置顶当前会话'; fi
     rename="command-prompt -p $(shell_quote "$(tr_ui '窗口名称：')") -I #{q:window_name} \"rename-window -- '%%'\""
-    tmux display-menu -c "$client" -t "$target:" -T "#[fg=#b7a1e8]pimux · $(tr_ui '工作终端')" -x C -y C \
+    tmux display-menu -c "$client" -t "$target:" -T "#[fg=#b7a1e8]PiMux · $(tr_ui '工作终端')" -x C -y C \
         "$(tr_ui '新建窗口')" c 'new-window -n shell -c #{q:pane_current_path}' \
         "$(tr_ui '重命名窗口')" , "$rename" \
-        "$(tr_ui '完整目录路径')" P "$(menu_action "$client" path false)" \
+        "$(tr_ui '完整目录路径')" P "$(menu_action "$client" path)" \
         "$(tr_ui '复制当前目录路径')" y "$(menu_action "$client" copy-path)" \
         "$(tr_ui '管理会话 / 窗口')" s "$(menu_action "$client" manager)" \
         "$(tr_ui "$pin_label")" p "$(menu_action "$client" pin)" \
@@ -238,11 +243,13 @@ show_menu() {
         "$(tr_ui '左右分屏')" '|' 'split-window -h -c #{q:pane_current_path}' \
         "$(tr_ui '上下分屏')" '-' 'split-window -v -c #{q:pane_current_path}' \
         "$(tr_ui '放大 / 恢复')" z 'resize-pane -Z' \
+        "$(tr_ui '关闭当前分屏')" x "$(menu_action "$client" close-pane)" \
         '' \
         'Language / 语言' l "$(menu_action "$client" language)" \
         "$(tr_ui '离开，保留任务')" d 'detach-client' \
-        "$(tr_ui '快捷键帮助')" / "$(menu_action "$client" help false)" \
+        "$(tr_ui '快捷键帮助')" / "$(menu_action "$client" help)" \
         "$(tr_ui '更新 PiMux')" u "$(menu_action "$client" update)" \
+        "$(tr_ui '环境变量')" e "$(menu_action "$client" environment)" \
         "$(tr_ui '网络代理')" o "$(menu_action "$client" proxy)"
 }
 
@@ -255,13 +262,21 @@ show_language_menu() {
 }
 
 shortcut_help() {
-    local line prefix description
-    printf '%s\n\n' "$(tr_ui '先按 Ctrl-a 并松开，再按下列操作键；数字键直接切窗口。')"
-    while IFS= read -r line; do
-        [[ $line == *'pimux: '* ]] || continue
-        prefix=${line%%pimux:*}; description=${line#*pimux: }
-        printf '%s%s\n' "$prefix" "$(tr_ui "$description")"
-    done < <(tmux list-keys -N -T prefix)
+    local line notes pattern
+    notes=$(tmux list-keys -N -T prefix 2>/dev/null || true)
+    if [[ -n $notes ]]; then
+        pattern='^([^[:space:]]+)[[:space:]]+(pimux|piux):[[:space:]]+(.*)$'
+        while IFS= read -r line; do
+            [[ $line =~ $pattern ]] || continue
+            printf '%s\t%s\n' "${BASH_REMATCH[1]}" "$(tr_ui "${BASH_REMATCH[3]}")"
+        done <<< "$notes"
+    else
+        pattern="^bind -N 'pimux: ([^']*)' ([^[:space:]]+) "
+        while IFS= read -r line; do
+            [[ $line =~ $pattern ]] || continue
+            printf '%s\t%s\n' "${BASH_REMATCH[2]}" "$(tr_ui "${BASH_REMATCH[1]}")"
+        done < "$(theme_file)"
+    fi
 }
 
 load_language

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # pimux-managed: standalone personal terminal workspace.
 set -euo pipefail
-PIMUX_VERSION=0.5.1
+PIMUX_VERSION=0.6.0
 PIMUX_COMMAND=()
 PIMUX_TARGET_SOCKET=''
 PIMUX_SHARED_SERVER=false
@@ -70,10 +70,13 @@ pimux · Personal terminal
   pimux -n NAME         Create or enter a session, with independent window selection
   pimux ls [query]      List sessions and windows; filter names or directories
   pimux -h              Print this help
+  pimux help            Open the searchable help page
   pimux --version       Print the installed version
   pimux update          Install the latest release and reload live workspaces
   pimux gpu             Open live GPU details
   pimux ports [PORT]    Inspect TCP listeners, processes and working directories
+  pimux env             Manage environment defaults and network proxies
+  pimux env set K V     Save a literal value; off K disables it, reset K inherits it
   pimux proxy           Open proxy settings (prints status outside a terminal)
   pimux proxy show      Print settings and this terminal's proxy environment
   pimux proxy set URL   Set and enable a proxy for PiMux shells
@@ -101,10 +104,13 @@ pimux · 个人工作终端
   pimux -n NAME         创建或进入命名会话，每个终端独立切换窗口
   pimux ls [关键词]     查看会话和窗口，可按名称或目录筛选
   pimux -h              打印此帮助
+  pimux help            打开可搜索的帮助页面
   pimux --version       打印当前版本
   pimux update          更新到最新发布版，并重载正在使用的工作空间
   pimux gpu             查看实时显卡详情
   pimux ports [端口]    查看 TCP 监听、占用进程及工作目录
+  pimux env             管理默认环境变量和网络代理
+  pimux env set K V     按原样保存变量值；off K 停用，reset K 恢复继承
   pimux proxy           打开代理设置；非交互终端中输出状态
   pimux proxy show      输出代理设置及当前终端的代理环境
   pimux proxy set URL   设置并启用 PiMux shell 的代理
@@ -279,6 +285,7 @@ install_shared_bindings() {
         case $key in
             s) action=manager ;; w) action=windows ;; h) action=menu ;;
             /) action=help ;; g) action=gpu ;; r) action=reload ;; L) action=previous ;; y) action=copy-path ;;
+            P) action=path ;; x) action=close-pane ;;
             *) continue ;;
         esac
         option="@pimux_fallback_$action"
@@ -425,7 +432,7 @@ open_manager() {
         cwd=$(tmux display-message -p -t "$sid:" '#{pane_current_path}')
         socket=$(tmux display-message -p '#{socket_path}')
         command="$(shell_quote "$PIMUX_LAUNCHER") __manager $(shell_quote "$socket") $(shell_quote "$client") $(shell_quote "$expanded")"
-        tmux display-popup -E -c "$client" -d "$cwd" -w 90% -h 85% "$command"
+        tmux display-popup -E -c "$client" -d "$cwd" -w 95% -h 90% "$command"
     fi
 }
 
@@ -540,15 +547,34 @@ main() {
     fi
     if [[ ${1:-} == __update ]]; then
         [[ $# == 1 ]] || return 2
+        printf '\033[38;2;183;161;232mPiMux · %s\033[0m\n\n' "$(tr_ui '更新 PiMux')"
         update_pimux || printf '\n%s\n' "$(tr_ui 'PiMux 更新失败。')" >&2
-        printf '\n%s' "$(tr_ui '按 Enter 返回。')"
-        IFS= read -r _ || true
+        printf '\n\033[38;2;255;175;95m%s\033[0m' "$(tr_ui 'Enter / q / Esc 返回。')"
+        while read_ui_key; do
+            case $PIMUX_KEY in ''|q|$'\e') break ;; esac
+        done
         return
     fi
     if [[ ${1:-} == __proxy ]]; then
         [[ $# == 1 || $# == 4 ]] || return 2
         shift
         load_gpu; python_view proxy_ui "$@"
+        return
+    fi
+    if [[ ${1:-} == __env ]]; then
+        [[ $# == 1 || $# == 4 ]] || return 2
+        shift
+        load_gpu; python_view environment_ui "$@"
+        return
+    fi
+    if [[ ${1:-} == __help ]]; then
+        [[ $# == 3 ]] || return 2
+        load_gpu; python_view utility_ui help "$2" "$3"
+        return
+    fi
+    if [[ ${1:-} == __path ]]; then
+        [[ $# == 4 ]] || return 2
+        load_gpu; python_view utility_ui path "$2" "$3" "$4"
         return
     fi
     # tmux bindings pass their exact client and socket; no default-server guessing.
@@ -564,7 +590,9 @@ main() {
                 menu) show_menu "$client" ;;
                 language) show_language_menu "$client" ;;
                 lang-en|lang-zh) save_language "${action#lang-}"; load_language; show_menu "$client" ;;
-                help) shortcut_help ;;
+                help)
+                    tmux display-popup -E -c "$client" -w 95% -h 90% \
+                        "$(shell_quote "$PIMUX_LAUNCHER") __help $(shell_quote "${PIMUX_COMMAND[0]}") $(shell_quote "$PIMUX_TARGET_SOCKET")" ;;
                 reload)
                     reload_config >/dev/null
                     tmux display-message -c "$client" "$(tr_ui 'pimux 配置已重载')" ;;
@@ -572,17 +600,28 @@ main() {
                     tmux display-popup -E -c "$client" -w 95% -h 90% \
                         "$(shell_quote "$PIMUX_LAUNCHER") __gpu" ;;
                 update)
-                    tmux display-popup -E -c "$client" -w 90% -h 80% \
+                    tmux display-popup -E -c "$client" -w 95% -h 90% \
                         "$(shell_quote "$PIMUX_LAUNCHER") __update" ;;
-                proxy)
-                    tmux display-popup -E -c "$client" -w 90% -h 80% \
-                        "$(shell_quote "$PIMUX_LAUNCHER") __proxy $(shell_quote "${PIMUX_COMMAND[0]}") $(shell_quote "$PIMUX_TARGET_SOCKET") $(shell_quote "$(tmux display-message -p -t "$(client_session "$client"):" '#{pane_id}')")" ;;
+                proxy|environment)
+                    local view=__proxy
+                    [[ $action != environment ]] || view=__env
+                    tmux display-popup -E -c "$client" -w 95% -h 90% \
+                        "$(shell_quote "$PIMUX_LAUNCHER") $view $(shell_quote "${PIMUX_COMMAND[0]}") $(shell_quote "$PIMUX_TARGET_SOCKET") $(shell_quote "$(tmux display-message -p -t "$(client_session "$client"):" '#{pane_id}')")" ;;
                 ports)
                     tmux display-popup -E -c "$client" -w 95% -h 90% \
                         "$(shell_quote "$PIMUX_LAUNCHER") __ports" ;;
                 path)
                     sid=$(client_session "$client")
-                    tmux display-message -p -t "$sid:" '#{pane_current_path}' ;;
+                    local pane
+                    pane=$(tmux display-message -p -t "$sid:" '#{pane_id}')
+                    tmux display-popup -E -c "$client" -w 95% -h 90% \
+                        "$(shell_quote "$PIMUX_LAUNCHER") __path $(shell_quote "${PIMUX_COMMAND[0]}") $(shell_quote "$PIMUX_TARGET_SOCKET") $(shell_quote "$pane")" ;;
+                close-pane)
+                    sid=$(client_session "$client")
+                    local pane
+                    pane=$(tmux display-message -p -t "$sid:" '#{pane_id}')
+                    tmux confirm-before -t "$client" -p "$(tr_ui '关闭当前分屏及其中的程序？[y/N]')" \
+                        "kill-pane -t $(shell_quote "$pane")" ;;
                 copy-path)
                     sid=$(client_session "$client")
                     local path pid
@@ -626,13 +665,22 @@ main() {
             fi
             load_proxy; pimux_proxy_command "$@"; return ;;
         ports) shift; load_gpu; python_view ports "$@"; return ;;
+        env)
+            shift
+            if [[ $# == 0 && -t 0 && -t 1 ]]; then
+                if [[ -n ${TMUX:-} && -n ${TMUX_PANE:-} ]]; then
+                    set -- "$(type -P tmux)" "${TMUX%%,*}" "$TMUX_PANE"
+                fi
+                load_gpu; python_view environment_ui "$@"
+            fi
+            load_gpu; python_view environment "$@"; return ;;
         uninstall)
             [[ $# == 1 ]] || return 2
             local file="$(dirname -- "$PIMUX_LAUNCHER")/uninstall.sh"
             [[ -f $file ]] || file="$HOME/.config/pimux/uninstall.sh"
             exec bash "$file" ;;
         -h|--help) [[ $# == 1 ]] || return 2; usage; return ;;
-        ''|ls|doctor|reload|gpu|-n) ;;
+        ''|ls|doctor|reload|gpu|help|-n) ;;
         *) printf_ui '未知命令：%s；会话请用 pimux -n NAME，帮助请用 pimux -h。\n' "$1" >&2; return 2 ;;
     esac
     configure_runtime "$system"
@@ -652,6 +700,7 @@ main() {
         doctor) [[ $# -le 2 ]] || { usage >&2; return 2; }; doctor "${2:-}" ;;
         reload) [[ $# == 1 ]] || { usage >&2; return 2; }; reload_config ;;
         gpu) [[ $# == 1 ]] || { usage >&2; return 2; }; require_terminal; load_gpu; python_view gpu ;;
+        help) [[ $# == 1 ]] || { usage >&2; return 2; }; load_gpu; python_view utility_ui help "${PIMUX_COMMAND[0]}" "$PIMUX_TARGET_SOCKET" ;;
     esac
 }
 
