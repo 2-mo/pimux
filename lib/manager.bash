@@ -33,9 +33,11 @@ manager() (
     local client=${1:-} expand_current=${2:-} selected=0 offset=0 rows cols visible
     local sid wid key answer name current='' error='' i count root resized=false
     local query='' searching=false suggestion current_window='' preview_target window_count
-    local navigation=false button column width nav_index
+    local navigation=false nav_index nav_position=0 nav_id=manager nav_focus=false nav_offset=0 sidebar_width=0 local_x
+    local nav_identity nav_parent nav_key
     local -a roots=() windows=() titles=() programs=() paths=() counts=() pinned_ids=() other_ids=()
-    local -a nav_keys=(e o g t i '?') nav_labels=('环境' '代理' '显卡' '端口' 'IP' '帮助') nav_starts=() nav_ends=()
+    local -a nav_ids=() nav_parents=() nav_keys=() nav_visible=()
+    local -A nav_expanded=([workspace]=1 [resources]=1 [network]=1 [settings]=1)
     local -A expanded=() pinned=() names=()
     if [[ -n $client ]]; then
         current=$(logical_session "$(client_session "$client")")
@@ -46,7 +48,8 @@ manager() (
         current=${roots[selected]:-}; current_window=${windows[selected]:-}
         restore_manager
         load_gpu
-        (python_view "$@") || true
+        if [[ $1 == __update ]]; then ("$PIMUX_LAUNCHER" "$@") || true
+        else (python_view "$@") || true; fi
         printf '\033[?1049h\033[?25l\033[?7l\033[?1000h\033[?1006h'
     }
     manager_windows() {
@@ -58,24 +61,33 @@ manager() (
             programs+=("$program"); paths+=("$path"); counts+=('')
         done < <(tmux list-windows -t "$target" -F $'#{window_id}\t#{window_index}:#{window_name}\t[#{pane_current_command}]\t#{pane_current_path}')
     }
-    manager_render() {
-        local index finish search_mode chosen pin expand row_sid row_name
-        nav_starts=(); nav_ends=(); column=2
-        for nav_index in "${!nav_keys[@]}"; do
-            button=$(tr_ui "${nav_labels[nav_index]}")
-            if [[ $PIMUX_LANGUAGE == zh && $button != IP ]]; then width=6
-            else width=$((2 + ${#button})); fi
-            (( column + width - 1 <= cols )) || break
-            nav_starts+=("$column"); nav_ends+=("$((column + width - 1))")
-            column=$((column + width + 1))
+    manager_navigation() {
+        nav_visible=()
+        for nav_index in "${!nav_ids[@]}"; do
+            nav_parent=${nav_parents[nav_index]}
+            if [[ -z $nav_parent || ${nav_expanded[$nav_parent]:-0} == 1 ]]; then
+                [[ ${nav_ids[nav_index]} != "$nav_id" ]] || nav_position=${#nav_visible[@]}
+                nav_visible+=("$nav_index")
+            fi
         done
+        (( nav_position < ${#nav_visible[@]} )) || nav_position=0
+        nav_id=${nav_ids[${nav_visible[nav_position]}]}
+        (( nav_position >= nav_offset )) || nav_offset=$nav_position
+        (( nav_position < nav_offset + visible )) || nav_offset=$((nav_position - visible + 1))
+        i=$((${#nav_visible[@]} > visible ? ${#nav_visible[@]} - visible : 0))
+        (( nav_offset <= i )) || nav_offset=$i
+    }
+    manager_render() {
+        local index finish search_mode chosen pin expand row_sid row_name focus_mode
         finish=$((offset + visible))
         (( finish <= count )) || finish=$count
         search_mode=0; [[ $searching != true ]] || search_mode=1
+        focus_mode=0; [[ $nav_focus != true ]] || focus_mode=1
         {
-            printf '%s\0' "$cols" "$rows" "$selected" "$count" "$search_mode" "$query" "$error" "${#nav_starts[@]}"
-            for index in "${!nav_starts[@]}"; do
-                printf '%s\0' "${nav_keys[index]}" "$(tr_ui "${nav_labels[index]}")"
+            printf '%s\0' "$cols" "$rows" "$selected" "$count" "$search_mode" "$query" "$error" \
+                "$sidebar_width" "$focus_mode" "$nav_id" "$nav_offset" "${#nav_visible[@]}"
+            for index in "${nav_visible[@]}"; do
+                printf '%s\0' "${nav_ids[index]}" "${nav_expanded[${nav_ids[index]}]:-0}"
             done
             printf '%s\0' "$((finish - offset))"
             for ((index=offset; index<finish; index++)); do
@@ -90,6 +102,9 @@ manager() (
         } | (python_view manager_ui)
     }
     load_gpu
+    while IFS= read -r -d '' nav_identity && IFS= read -r -d '' nav_parent && IFS= read -r -d '' nav_key; do
+        nav_ids+=("$nav_identity"); nav_parents+=("$nav_parent"); nav_keys+=("$nav_key")
+    done < <(python_view navigation --dump home)
     trap restore_manager EXIT
     trap 'exit 130' INT TERM HUP
     trap 'resized=true' WINCH
@@ -124,6 +139,8 @@ manager() (
         (( selected < count )) || selected=$((count > 0 ? count - 1 : 0))
         read -r rows cols < <(stty size)
         visible=$((rows > 8 ? rows - 8 : 1))
+        sidebar_width=0; (( cols < 80 )) || sidebar_width=24
+        manager_navigation
         (( selected >= offset )) || offset=$selected
         (( selected < offset + visible )) || offset=$((selected - visible + 1))
         manager_render
@@ -134,17 +151,43 @@ manager() (
         key=$PIMUX_KEY
         navigation=false
         [[ $key != ignored ]] || continue
+        if [[ $key == $'\t' ]]; then
+            if [[ $nav_focus == true ]]; then nav_focus=false; else nav_focus=true; fi
+            searching=false
+            continue
+        fi
         if [[ $key == mouse ]]; then
             if (( PIMUX_MOUSE_BUTTON == 0 && PIMUX_MOUSE_Y == 3 )); then
-                for nav_index in "${!nav_starts[@]}"; do
-                    if (( PIMUX_MOUSE_X >= nav_starts[nav_index] && PIMUX_MOUSE_X <= nav_ends[nav_index] )); then
-                        key=${nav_keys[nav_index]}; navigation=true
-                        break
-                    fi
-                done
-                [[ $navigation == true ]] || continue
+                if (( sidebar_width )); then
+                    if (( PIMUX_MOUSE_X <= sidebar_width )); then nav_focus=true; else nav_focus=false; fi
+                elif [[ $nav_focus == true ]]; then nav_focus=false
+                else nav_focus=true; fi
+                searching=false
+                continue
+            fi
+            (( PIMUX_MOUSE_Y >= 4 && PIMUX_MOUSE_Y < 4 + visible )) || continue
+            if (( sidebar_width > 0 && PIMUX_MOUSE_X <= sidebar_width )) ||
+               [[ $sidebar_width == 0 && $nav_focus == true ]]; then
+                nav_focus=true; searching=false
+                case $PIMUX_MOUSE_BUTTON in
+                    64|65)
+                        if (( PIMUX_MOUSE_BUTTON == 64 )); then nav_position=$((nav_position > 3 ? nav_position - 3 : 0))
+                        else nav_position=$((nav_position + 3)); fi
+                        (( nav_position < ${#nav_visible[@]} )) || nav_position=$((${#nav_visible[@]} - 1))
+                        nav_id=${nav_ids[${nav_visible[nav_position]}]}
+                        continue ;;
+                    0)
+                        nav_position=$((nav_offset + PIMUX_MOUSE_Y - 4))
+                        (( nav_position < ${#nav_visible[@]} )) || continue
+                        nav_id=${nav_ids[${nav_visible[nav_position]}]}
+                        key=''; navigation=true ;;
+                    *) continue ;;
+                esac
             else
-                (( PIMUX_MOUSE_Y >= 4 && PIMUX_MOUSE_Y < 4 + visible )) || continue
+                nav_focus=false
+                local_x=$PIMUX_MOUSE_X
+                (( sidebar_width == 0 )) || local_x=$((local_x - sidebar_width - 2))
+                (( local_x > 0 )) || continue
                 case $PIMUX_MOUSE_BUTTON in
                     64|65)
                         if (( PIMUX_MOUSE_BUTTON == 64 )); then offset=$((offset > 3 ? offset - 3 : 0))
@@ -158,16 +201,40 @@ manager() (
                         i=$((offset + PIMUX_MOUSE_Y - 4))
                         (( i < count )) || continue
                         selected=$i
-                        if [[ -z ${windows[i]} ]] && (( PIMUX_MOUSE_X <= 3 )); then
+                        if [[ -z ${windows[i]} ]] && (( local_x <= 3 )); then
                             sid=${roots[i]}
                             if [[ ${expanded[$sid]:-} == 1 ]]; then expanded[$sid]=0
                             else expanded[$sid]=1; fi
                             continue
                         fi
-                        key='' ;;
+                        key=''; navigation=true ;;
                     *) continue ;;
                 esac
             fi
+        fi
+        if [[ $nav_focus == true ]]; then
+            nav_index=${nav_visible[nav_position]}
+            case $key in
+                $'\e[A'|$'\eOA'|k) (( nav_position == 0 )) || nav_position=$((nav_position - 1)) ;;
+                $'\e[B'|$'\eOB'|j) (( nav_position + 1 >= ${#nav_visible[@]} )) || nav_position=$((nav_position + 1)) ;;
+                $'\e[D'|$'\eOD'|h)
+                    if [[ -n ${nav_parents[nav_index]} ]]; then nav_id=${nav_parents[nav_index]}
+                    else nav_expanded[$nav_id]=0; fi
+                    continue ;;
+                $'\e[C'|$'\eOC'|l)
+                    [[ -n ${nav_parents[nav_index]} ]] || nav_expanded[$nav_id]=1
+                    continue ;;
+                '')
+                    if [[ -z ${nav_parents[nav_index]} ]]; then
+                        nav_expanded[$nav_id]=$((1 - ${nav_expanded[$nav_id]:-0}))
+                        continue
+                    fi
+                    key=${nav_keys[nav_index]}; navigation=true ;;
+            esac
+            case $key in
+                $'\e[A'|$'\eOA'|k|$'\e[B'|$'\eOB'|j)
+                    nav_id=${nav_ids[${nav_visible[nav_position]}]}; continue ;;
+            esac
         fi
         if [[ $searching == true && $navigation != true ]]; then
             case $key in
@@ -180,7 +247,9 @@ manager() (
             esac
         fi
         case $key in
-            /) searching=true; selected=0; offset=0 ;;
+            /) nav_focus=false; searching=true; selected=0; offset=0 ;;
+            s) nav_focus=false ;;
+            u) manager_view __update ;;
             q|$'\e') return ;;
             e|o|i)
                 local -a context=()
@@ -188,7 +257,7 @@ manager() (
                     sid=$(client_session "$client")
                     context=("${PIMUX_COMMAND[0]}" "$PIMUX_TARGET_SOCKET" "$(tmux display-message -p -t "$sid:" '#{pane_id}')")
                 fi
-                if [[ $key == i ]]; then manager_view network "${context[@]}"
+                if [[ $key == i ]]; then manager_view network --client "$client" "${context[@]}"
                 elif [[ $key == e ]]; then manager_view environment_ui "${context[@]}"
                 else manager_view proxy_ui "${context[@]}"; fi
                 ;;

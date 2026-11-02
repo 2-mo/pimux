@@ -27,7 +27,7 @@ PiMux 在现有终端或 SSH 连接中工作，不是终端模拟器。离开连
 
 ## 日常使用
 
-日常只需打开 `pimux`。主界面顶部直接提供**环境、代理、显卡、端口、IP、帮助**入口，点击即可进入，也可按界面显示的 e / o / g / t / i / ?。按 `q` 返回时保留原会话选择和搜索。下列命令作为可选快捷入口；工作空间内仍可用 `Ctrl-a h` 打开操作菜单。
+日常只需打开 `pimux`。首页和 `Ctrl-a h` 使用同一套树形菜单，分为**工作区、资源、网络、设置**，用少量内置符号区分。宽屏并排显示菜单和会话列表，窄屏一次显示一个区域；`Tab` 切换区域，方向键选择、展开或收起，Enter 进入，也可鼠标点击。原来的 e / o / g / t / i / ? 快捷入口继续可用。按 `q` 返回时保留原会话选择和搜索，下列命令作为可选快捷入口。
 
 ```bash
 pimux                 # 管理列表，不自动新建会话
@@ -73,7 +73,11 @@ pimux --version
 
 主界面点击 **IP** 或按 `i`，也可用快捷命令 `pimux ip`。页面展示每张网卡的 IPv4/IPv6 地址、CIDR 子网，以及默认路由和子网路由对应的网卡、网关与路由表。同一网卡的多个地址、不同策略路由表中的同一子网会分别保留。
 
-有 Tailscale 时，读取[本机状态](https://tailscale.com/docs/reference/tailscale-cli#status)并展示自身地址和 MagicDNS 名称，支持 userspace 模式；普通 IP 查看不依赖 Tailscale。按 `a` 展开／收起回环、容器和链路本网卡，`/` 筛选，滚轮或 PgUp/PgDn 滚动。本机信息每三秒刷新；`pimux ip --all --once` 可一次输出全部网卡。
+有 Tailscale 时，读取[本机状态](https://tailscale.com/docs/reference/tailscale-cli#status)并展示自身地址和 MagicDNS 名称，支持 userspace 模式；普通 IP 查看不依赖 Tailscale。按 `a` 展开／收起回环、容器和链路本网卡，`/` 筛选，滚轮或 PgUp/PgDn 滚动。
+
+用 ↑/↓ 或鼠标选中地址，按 `y`（或 Enter）复制不带掩码的 IP，`Y` 复制对应的 CIDR 子网；IPv6 链路本地地址保留 `%网卡名`。网关、路由子网和 MagicDNS 名称也可以选中复制。在 tmux 内，内容同时保存到 tmux 缓冲区并只发送给当前终端的剪贴板；本机剪贴板需要终端支持 OSC 52，也可用 `Ctrl-a ]` 粘贴 tmux 缓冲区。
+
+本机信息每三秒刷新；`pimux ip --all --once` 可一次输出全部网卡。
 
 按 `p` 才向 [ipify](https://www.ipify.org/) 查询公网出口，单次请求限时三秒，绕过 HTTP/SOCKS 代理并遵循当前系统路由。打开页面和刷新本机信息不会查询该服务；终端代理状态或 PiMux 代理偏好会单独标注。
 
