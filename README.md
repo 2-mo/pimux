@@ -12,6 +12,8 @@ A tmux workspace for research and project development.
 curl -fsSL https://raw.githubusercontent.com/2-mo/pimux/main/install.sh | bash && export PATH="$HOME/.local/bin:$PATH"
 ```
 
+On Debian/Ubuntu, missing tmux and terminal dependencies are installed automatically.
+
 ## Use
 
 ```bash

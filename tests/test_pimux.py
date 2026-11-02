@@ -24,6 +24,43 @@ def install(home, function="install_files"):
     )
 
 
+@pytest.mark.parametrize("tmux_present", [False, True])
+def test_installer_checks_external_tmux_before_installing_dependencies(tmp_path, tmux_present):
+    tools = tmp_path / "bin"
+    tools.mkdir()
+    for name in ("dirname", "readlink"):
+        (tools / name).symlink_to(shutil.which(name))
+    present = tools / "present"
+    present.write_text("#!/bin/sh\nexit 0\n")
+    present.chmod(0o755)
+    dependencies = ["infocmp", "flock", "timeout", "curl", "ss"]
+    if tmux_present:
+        dependencies.append("tmux")
+    for name in dependencies:
+        (tools / name).symlink_to(present)
+    apt = tools / "apt-get"
+    apt.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$PIMUX_DEPENDENCY_LOG"\n')
+    apt.chmod(0o755)
+    sudo = tools / "sudo"
+    sudo.write_text('#!/bin/sh\nexec "$@"\n')
+    sudo.chmod(0o755)
+    log = tmp_path / "packages.log"
+    env = dict(os.environ, PATH=str(tools), HOME=str(tmp_path), PIMUX_DEPENDENCY_LOG=str(log))
+    result = subprocess.run(
+        [shutil.which("bash"), "-c", 'source "$1" && install_dependencies',
+         "test", str(SOURCE / "scripts/setup-tmux.sh")],
+        env=env, text=True, capture_output=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    if tmux_present:
+        assert not log.exists()
+    else:
+        update, install = log.read_text().splitlines()
+        assert update == "update"
+        assert install.split()[:2] == ["install", "-y"]
+        assert "tmux" in install.split()[2:]
+
+
 def test_install_exposes_short_command_and_preserves_user_settings(tmp_path):
     home = tmp_path / 'personal "terminal" $dir'
     home.mkdir()
