@@ -31,10 +31,10 @@ toggle_session_pin() (
 
 manager() (
     local client=${1:-} expand_current=${2:-} selected=0 offset=0 rows cols visible
-    local sid wid label key answer name current='' error='' i count root resized=false
-    local query='' searching=false candidate suggestion current_window='' preview_target
+    local sid wid key answer name current='' error='' i count root resized=false
+    local query='' searching=false suggestion current_window='' preview_target window_count
     local navigation=false button column width nav_index
-    local -a roots=() windows=() labels=() pinned_ids=() other_ids=()
+    local -a roots=() windows=() titles=() programs=() paths=() counts=() pinned_ids=() other_ids=()
     local -a nav_keys=(e o g t '?') nav_labels=('环境' '代理' '显卡' '端口' '帮助') nav_starts=() nav_ends=()
     local -A expanded=() pinned=() names=()
     if [[ -n $client ]]; then
@@ -49,6 +49,47 @@ manager() (
         (python_view "$@") || true
         printf '\033[?1049h\033[?25l\033[?7l\033[?1000h\033[?1006h'
     }
+    manager_windows() {
+        local target=$1 wid title program path candidate
+        while IFS=$'\t' read -r wid title program path; do
+            candidate="${names[$target]} / $title  $program  $path"
+            [[ -z $query || ${candidate,,} == *"${query,,}"* ]] || continue
+            roots+=("$target"); windows+=("$wid"); titles+=("$title")
+            programs+=("$program"); paths+=("$path"); counts+=('')
+        done < <(tmux list-windows -t "$target" -F $'#{window_id}\t#{window_index}:#{window_name}\t[#{pane_current_command}]\t#{pane_current_path}')
+    }
+    manager_render() {
+        local index finish search_mode chosen pin expand row_sid row_name
+        nav_starts=(); nav_ends=(); column=2
+        for nav_index in "${!nav_keys[@]}"; do
+            button=$(tr_ui "${nav_labels[nav_index]}")
+            if [[ $PIMUX_LANGUAGE == zh ]]; then width=6
+            else width=$((2 + ${#button})); fi
+            (( column + width - 1 <= cols )) || break
+            nav_starts+=("$column"); nav_ends+=("$((column + width - 1))")
+            column=$((column + width + 2))
+        done
+        finish=$((offset + visible))
+        (( finish <= count )) || finish=$count
+        search_mode=0; [[ $searching != true ]] || search_mode=1
+        {
+            printf '%s\0' "$cols" "$rows" "$selected" "$count" "$search_mode" "$query" "$error" "${#nav_starts[@]}"
+            for index in "${!nav_starts[@]}"; do
+                printf '%s\0' "${nav_keys[index]}" "$(tr_ui "${nav_labels[index]}")"
+            done
+            printf '%s\0' "$((finish - offset))"
+            for ((index=offset; index<finish; index++)); do
+                row_sid=${roots[index]}; row_name=${names[$row_sid]}
+                chosen=0; pin=0; expand=0
+                (( index != selected )) || chosen=1
+                [[ ${pinned[$row_name]:-} != 1 ]] || pin=1
+                [[ ${expanded[$row_sid]:-} != 1 ]] || expand=1
+                printf '%s\0' "$row_name" "${titles[index]}" "${programs[index]}" \
+                    "${paths[index]}" "${counts[index]}" "$expand" "$pin" "$chosen"
+            done
+        } | (python_view manager_ui)
+    }
+    load_gpu
     trap restore_manager EXIT
     trap 'exit 130' INT TERM HUP
     trap 'resized=true' WINCH
@@ -63,28 +104,15 @@ manager() (
             if [[ ${pinned[$name]:-} == 1 ]]; then pinned_ids+=("$sid")
             else other_ids+=("$sid"); fi
         done < <(logical_sessions)
-        roots=(); windows=(); labels=()
+        roots=(); windows=(); titles=(); programs=(); paths=(); counts=()
         for sid in "${pinned_ids[@]}" "${other_ids[@]}"; do
-            name=${names[$sid]}
-            label=$(tmux display-message -p -t "$sid:" "#{session_name}  (#{session_windows} $(tr_ui '窗口'))") || continue
-            [[ ${pinned[$name]:-} != 1 ]] || label+=' *'
             if [[ -n $query ]]; then
-                while IFS=$'\t' read -r wid label; do
-                    candidate="$name / $label"
-                    [[ ${candidate,,} == *"${query,,}"* ]] || continue
-                    roots+=("$sid"); windows+=("$wid"); labels+=("$candidate")
-                done < <(tmux list-windows -t "$sid" -F $'#{window_id}\t#{window_index}:#{window_name}  [#{pane_current_command}]  #{pane_current_path}')
+                manager_windows "$sid"
                 continue
             fi
-            roots+=("$sid"); windows+=('')
-            if [[ ${expanded[$sid]:-} == 1 ]]; then
-                labels+=("v $label")
-                while IFS=$'\t' read -r wid label; do
-                    roots+=("$sid"); windows+=("$wid"); labels+=("    $label")
-                done < <(tmux list-windows -t "$sid" -F $'#{window_id}\t#{window_index}:#{window_name}  [#{pane_current_command}]  #{pane_current_path}')
-            else
-                labels+=("> $label")
-            fi
+            window_count=$(tmux display-message -p -t "$sid:" '#{session_windows}') || continue
+            roots+=("$sid"); windows+=(''); titles+=(''); programs+=(''); paths+=(''); counts+=("$window_count")
+            [[ ${expanded[$sid]:-} != 1 ]] || manager_windows "$sid"
         done
         count=${#roots[@]}
         if [[ -n $current ]]; then
@@ -98,44 +126,7 @@ manager() (
         visible=$((rows > 8 ? rows - 8 : 1))
         (( selected >= offset )) || offset=$selected
         (( selected < offset + visible )) || offset=$((selected - visible + 1))
-        printf '\033[H\033[2J\033[38;2;183;161;232m PiMux · %s\033[0m\n' "$(tr_ui '会话管理')"
-        printf_ui ' 搜索：%s  [%s/%s]\n\n' "$query" "$((count > 0 ? selected + 1 : 0))" "$count"
-        printf '\033[3;1H '
-        nav_starts=(); nav_ends=(); column=2
-        for nav_index in "${!nav_keys[@]}"; do
-            button=$(tr_ui "${nav_labels[nav_index]}")
-            if [[ $PIMUX_LANGUAGE == zh ]]; then width=6
-            else width=$((2 + ${#button})); fi
-            (( column + width - 1 <= cols )) || break
-            nav_starts+=("$column"); nav_ends+=("$((column + width - 1))")
-            printf '\033[38;2;255;175;95m%s\033[38;2;99;197;248m %s\033[0m  ' "${nav_keys[nav_index]}" "$button"
-            column=$((column + width + 2))
-        done
-        printf '\033[K\n'
-        if (( count == 0 )); then
-            if [[ -n $query ]]; then printf_ui ' 没有匹配的窗口，Esc 清除搜索。\n'
-            else printf_ui ' 暂无会话。按 n 新建，或 q 返回后运行 pimux -n NAME。\n'
-            fi
-        else
-            for ((i=offset; i<count && i<offset+visible; i++)); do
-                (( i != selected )) || printf '\033[48;2;39;43;52m\033[38;2;99;197;248m'
-                # Do not interpret terminal control sequences from names or paths.
-                label=$(printf '%s' "${labels[i]}" | sed 's/[[:cntrl:]]/?/g')
-                printf ' %s\033[K\033[0m\n' "$label"
-            done
-        fi
-        if [[ $searching == true ]]; then
-            if (( cols < 80 )); then label=$(tr_ui ' 输入筛选  Enter 进入  Esc 清除')
-            else label=$(tr_ui ' 输入筛选  ↑↓ 选择  Enter 进入  Backspace 删除  Esc 清除'); fi
-        else
-            if (( cols < 80 )); then label=$(tr_ui ' / 搜索  Enter 进入  d 预览  q 返回')
-            else label=$(tr_ui ' / 搜索  ↑↓ 选择  ←→ 展开  Enter 进入  d 预览  p 置顶  n 新建  x 关闭  q 返回'); fi
-        fi
-        printf '\033[%s;1H\033[38;2;255;175;95m%s\033[0m' "$((rows > 3 ? rows - 2 : 1))" "$label"
-        if (( cols < 80 )); then label=$(tr_ui ' 点击进入  滚轮翻动')
-        else label=$(tr_ui ' 点击进入  点箭头展开/收起  滚轮翻动'); fi
-        printf '\n\033[38;2;156;163;175m%s\033[0m' "$label"
-        [[ -z $error ]] || printf '\n %s' "$error"
+        manager_render
         error=''
         key=''
         resized=false
@@ -229,7 +220,7 @@ manager() (
                 printf '\033[?1000l\033[?1006l\033[%s;1H\033[2K\033[?25h' "$rows"
                 suggestion=$(printf '%s' "${PWD##*/}" | sed 's/[.:$#{}[:cntrl:]]/-/g; s/^-*//')
                 name=''; IFS= read -er -i "${suggestion:-work}" \
-                    -p "$(tr_ui ' 会话名称（Enter 确认，清空取消）：')" name || name=''
+                    -p $'\001\033[38;2;99;197;248m\002'"$(tr_ui ' 会话名称（Enter 确认，清空取消）：')"$'\001\033[0m\002' name || name=''
                 printf '\033[?25l\033[?1000h\033[?1006h'
                 [[ -n $name ]] || continue
                 if root=$(ensure_session "$name" 2>&1); then
@@ -248,7 +239,7 @@ manager() (
             x)
                 (( count > 0 )) || continue
                 sid=${roots[selected]}; wid=${windows[selected]}
-                printf '\033[%s;1H\033[2K' "$rows"
+                printf '\033[%s;1H\033[2K\033[38;2;255;175;95m' "$rows"
                 if [[ -z $wid ]]; then
                     name=$(tmux display-message -p -t "$sid:" '#{session_name}')
                     printf_ui ' 关闭会话 %s 及其全部窗口，影响所有连接？[y/N] ' "$name"
@@ -256,6 +247,7 @@ manager() (
                     name=$(tmux display-message -p -t "$sid:$wid" '#{window_name}')
                     printf_ui ' 关闭窗口 %s，影响所有连接？[y/N] ' "$name"
                 fi
+                printf '\033[0m'
                 answer=''; read_ui_key && answer=$PIMUX_KEY
                 [[ $answer == y ]] || continue
                 if [[ -z $wid ]]; then

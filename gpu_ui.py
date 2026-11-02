@@ -7,7 +7,6 @@ import signal
 import sys
 import time
 
-from blessed import Terminal
 from rich.console import Console
 from rich.console import Group
 from rich.cells import cell_len
@@ -91,6 +90,8 @@ def run_screen(render, on_key, refresh, *, interval=1, can_refresh=None):
     if not console.is_terminal or not sys.stdin.isatty():
         console.print(render(console.width, console.height))
         return 0
+    from blessed import Terminal
+
     # Rich honors NO_COLOR; Blessed still needs capabilities for input protocols.
     no_color = os.environ.pop("NO_COLOR", None)
     try:

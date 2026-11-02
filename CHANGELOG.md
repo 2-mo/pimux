@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.2
+
+- Give the main interface distinct colors for sessions, programs, directories, shortcuts and feedback, with a cyan marker and background for the selected row.
+- Align window names, running programs and directories in columns; keep the end of long paths visible and show the selected directory in narrow terminals.
+- Style the main navigation as clickable buttons and share search fields and bottom action bars with the other PiMux pages.
+
 ## 0.6.1
 
 - Put Environment, Proxy, GPU, Ports and Help directly in the main `pimux` interface, with clickable entries and visible action keys.

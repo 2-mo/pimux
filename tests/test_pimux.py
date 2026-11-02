@@ -804,12 +804,10 @@ def test_search_gpu_popup_and_reload_preserve_running_panes(tmp_path, server):
         os.write(master, b'/missing-query')
         wait_for(lambda: '没有匹配'.encode() in output)
         os.write(master, b'\x1b')
-        wait_for(lambda: ' / 搜索'.encode() in output)
         output.clear()
         os.write(master, b'/train[')
         wait_for(lambda: b'Train[Fast]' in output)
         os.write(master, b'\x1b')
-        wait_for(lambda: ' / 搜索'.encode() in output)
         output.clear()
         os.write(master, b'/sleep')
         wait_for(lambda: b'Train[Fast]' in output and b'[sleep]' in output)
@@ -903,7 +901,7 @@ manager
         pytest.fail(output.decode(errors='replace')[-2000:])
 
     try:
-        wait_for(b'> seed')
+        wait_for(b'seed')
         os.write(master, b'\x1b[<0;2;4M\x1b[<0;2;4m')
         wait_for(b'mouse-04')
         output.clear()
