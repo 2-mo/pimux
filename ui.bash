@@ -1,5 +1,10 @@
 # pimux-managed: English / Simplified Chinese UI and language preference.
 declare -A PIMUX_EN=(
+    ['环境']='Env'
+    ['代理']='Proxy'
+    ['显卡']='GPU'
+    ['端口']='Ports'
+    ['帮助']='Help'
     ['环境变量']='Environment'
     ['关闭当前分屏']='Close current pane'
     ['关闭当前分屏及其中的程序？[y/N]']='Close this pane and its programs? [y/N]'

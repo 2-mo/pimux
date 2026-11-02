@@ -33,13 +33,22 @@ manager() (
     local client=${1:-} expand_current=${2:-} selected=0 offset=0 rows cols visible
     local sid wid label key answer name current='' error='' i count root resized=false
     local query='' searching=false candidate suggestion current_window='' preview_target
+    local navigation=false button column width nav_index
     local -a roots=() windows=() labels=() pinned_ids=() other_ids=()
+    local -a nav_keys=(e o g t '?') nav_labels=('环境' '代理' '显卡' '端口' '帮助') nav_starts=() nav_ends=()
     local -A expanded=() pinned=() names=()
     if [[ -n $client ]]; then
         current=$(logical_session "$(client_session "$client")")
         [[ $expand_current != windows ]] || expanded[$current]=1
     fi
     restore_manager() { printf '\033[?1000l\033[?1006l\033[0m\033[?7h\033[?25h\033[?1049l'; }
+    manager_view() {
+        current=${roots[selected]:-}; current_window=${windows[selected]:-}
+        restore_manager
+        load_gpu
+        (python_view "$@") || true
+        printf '\033[?1049h\033[?25l\033[?7l\033[?1000h\033[?1006h'
+    }
     trap restore_manager EXIT
     trap 'exit 130' INT TERM HUP
     trap 'resized=true' WINCH
@@ -91,6 +100,18 @@ manager() (
         (( selected < offset + visible )) || offset=$((selected - visible + 1))
         printf '\033[H\033[2J\033[38;2;183;161;232m PiMux · %s\033[0m\n' "$(tr_ui '会话管理')"
         printf_ui ' 搜索：%s  [%s/%s]\n\n' "$query" "$((count > 0 ? selected + 1 : 0))" "$count"
+        printf '\033[3;1H '
+        nav_starts=(); nav_ends=(); column=2
+        for nav_index in "${!nav_keys[@]}"; do
+            button=$(tr_ui "${nav_labels[nav_index]}")
+            if [[ $PIMUX_LANGUAGE == zh ]]; then width=6
+            else width=$((2 + ${#button})); fi
+            (( column + width - 1 <= cols )) || break
+            nav_starts+=("$column"); nav_ends+=("$((column + width - 1))")
+            printf '\033[38;2;255;175;95m%s\033[38;2;99;197;248m %s\033[0m  ' "${nav_keys[nav_index]}" "$button"
+            column=$((column + width + 2))
+        done
+        printf '\033[K\n'
         if (( count == 0 )); then
             if [[ -n $query ]]; then printf_ui ' 没有匹配的窗口，Esc 清除搜索。\n'
             else printf_ui ' 暂无会话。按 n 新建，或 q 返回后运行 pimux -n NAME。\n'
@@ -120,33 +141,44 @@ manager() (
         resized=false
         read_ui_key || { [[ $resized == true ]] && continue; return; }
         key=$PIMUX_KEY
+        navigation=false
         [[ $key != ignored ]] || continue
         if [[ $key == mouse ]]; then
-            (( PIMUX_MOUSE_Y >= 4 && PIMUX_MOUSE_Y < 4 + visible )) || continue
-            case $PIMUX_MOUSE_BUTTON in
-                64|65)
-                    if (( PIMUX_MOUSE_BUTTON == 64 )); then offset=$((offset > 3 ? offset - 3 : 0))
-                    else offset=$((offset + 3)); fi
-                    i=$((count > visible ? count - visible : 0))
-                    (( offset <= i )) || offset=$i
-                    (( selected >= offset )) || selected=$offset
-                    (( selected < offset + visible )) || selected=$((offset + visible - 1))
-                    continue ;;
-                0)
-                    i=$((offset + PIMUX_MOUSE_Y - 4))
-                    (( i < count )) || continue
-                    selected=$i
-                    if [[ -z ${windows[i]} ]] && (( PIMUX_MOUSE_X <= 3 )); then
-                        sid=${roots[i]}
-                        if [[ ${expanded[$sid]:-} == 1 ]]; then expanded[$sid]=0
-                        else expanded[$sid]=1; fi
-                        continue
+            if (( PIMUX_MOUSE_BUTTON == 0 && PIMUX_MOUSE_Y == 3 )); then
+                for nav_index in "${!nav_starts[@]}"; do
+                    if (( PIMUX_MOUSE_X >= nav_starts[nav_index] && PIMUX_MOUSE_X <= nav_ends[nav_index] )); then
+                        key=${nav_keys[nav_index]}; navigation=true
+                        break
                     fi
-                    key='' ;;
-                *) continue ;;
-            esac
+                done
+                [[ $navigation == true ]] || continue
+            else
+                (( PIMUX_MOUSE_Y >= 4 && PIMUX_MOUSE_Y < 4 + visible )) || continue
+                case $PIMUX_MOUSE_BUTTON in
+                    64|65)
+                        if (( PIMUX_MOUSE_BUTTON == 64 )); then offset=$((offset > 3 ? offset - 3 : 0))
+                        else offset=$((offset + 3)); fi
+                        i=$((count > visible ? count - visible : 0))
+                        (( offset <= i )) || offset=$i
+                        (( selected >= offset )) || selected=$offset
+                        (( selected < offset + visible )) || selected=$((offset + visible - 1))
+                        continue ;;
+                    0)
+                        i=$((offset + PIMUX_MOUSE_Y - 4))
+                        (( i < count )) || continue
+                        selected=$i
+                        if [[ -z ${windows[i]} ]] && (( PIMUX_MOUSE_X <= 3 )); then
+                            sid=${roots[i]}
+                            if [[ ${expanded[$sid]:-} == 1 ]]; then expanded[$sid]=0
+                            else expanded[$sid]=1; fi
+                            continue
+                        fi
+                        key='' ;;
+                    *) continue ;;
+                esac
+            fi
         fi
-        if [[ $searching == true ]]; then
+        if [[ $searching == true && $navigation != true ]]; then
             case $key in
                 $'\177'|$'\b') query=${query%?}; selected=0; offset=0; continue ;;
                 $'\e') query=''; searching=false; selected=0; offset=0; continue ;;
@@ -159,6 +191,18 @@ manager() (
         case $key in
             /) searching=true; selected=0; offset=0 ;;
             q|$'\e') return ;;
+            e|o)
+                local -a context=()
+                if [[ -n $client ]]; then
+                    sid=$(client_session "$client")
+                    context=("${PIMUX_COMMAND[0]}" "$PIMUX_TARGET_SOCKET" "$(tmux display-message -p -t "$sid:" '#{pane_id}')")
+                fi
+                if [[ $key == e ]]; then manager_view environment_ui "${context[@]}"
+                else manager_view proxy_ui "${context[@]}"; fi
+                ;;
+            g) manager_view gpu ;;
+            t) manager_view ports ;;
+            '?') manager_view utility_ui help "${PIMUX_COMMAND[0]}" "$PIMUX_TARGET_SOCKET" ;;
             $'\e[A'|$'\eOA'|k) (( selected == 0 )) || selected=$((selected - 1)) ;;
             $'\e[B'|$'\eOB'|j) (( selected + 1 >= count )) || selected=$((selected + 1)) ;;
             $'\e[C'|$'\eOC'|l) (( count == 0 )) || expanded[${roots[selected]}]=1 ;;
@@ -179,10 +223,7 @@ manager() (
                     sid=$(client_session "$client")
                     [[ $(logical_session "$sid") != "$current" ]] || preview_target="$sid:"
                 fi
-                restore_manager
-                load_gpu
-                (python_view window_details "${PIMUX_COMMAND[0]}" "$PIMUX_TARGET_SOCKET" "$preview_target") || true
-                printf '\033[?1049h\033[?25l\033[?7l\033[?1000h\033[?1006h'
+                manager_view window_details "${PIMUX_COMMAND[0]}" "$PIMUX_TARGET_SOCKET" "$preview_target"
                 ;;
             n)
                 printf '\033[?1000l\033[?1006l\033[%s;1H\033[2K\033[?25h' "$rows"
