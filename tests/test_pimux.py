@@ -1708,9 +1708,11 @@ def test_window_preview_reports_exit_code_and_preserves_panes(server):
     import window_details
 
     env, tmux = server
-    target = tmux('new-window', '-d', '-t', 'seed', '-n', 'exited-preview', '-P', '-F', '#{window_id}')
-    tmux('set-option', '-w', '-t', target, 'remain-on-exit', 'on')
-    tmux('respawn-pane', '-k', '-t', target, 'printf "preview-output\\n"; exit 7')
+    # Keep the process alive until tmux has finished registering its pane.
+    tmux('set-window-option', '-g', 'remain-on-exit', 'on')
+    target = tmux('new-window', '-d', '-t', 'seed', '-n', 'exited-preview', '-P', '-F', '#{window_id}',
+                  'printf "preview-output\\n"; read -r ready; exit 7')
+    tmux('send-keys', '-t', target, 'Enter')
     deadline = time.monotonic() + 3
     # tmux can report pane_dead before the child exit status has been collected.
     while tmux('display-message', '-p', '-t', target, '#{pane_dead_status}') != '7' and time.monotonic() < deadline:
@@ -1718,7 +1720,9 @@ def test_window_preview_reports_exit_code_and_preserves_panes(server):
     before = tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid} #{pane_dead}')
     blocks = window_details.window_blocks(shutil.which('tmux'), tmux('display-message', '-p', '#{socket_path}'), target)
     content = '\n'.join(line.plain for block in blocks for line in block)
-    assert 'exit 7' in content and 'preview-output' in content
+    assert 'exit 7' in content and 'preview-output' in content, tmux(
+        'display-message', '-p', '-t', target,
+        'dead=#{pane_dead} status=#{pane_dead_status} signal=#{pane_dead_signal} command=#{pane_start_command}')
     assert tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid} #{pane_dead}') == before
 
 
