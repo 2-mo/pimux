@@ -1,6 +1,6 @@
 # PiMux guide
 
-[简体中文](guide.zh-CN.md) · [Quick start](../README.md)
+[简体中文](guide.zh-CN.md) · [Quick start](../README.md) · [Background management for agents](agents.md)
 
 ![PiMux workspace illustration](preview.svg)
 

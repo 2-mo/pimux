@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # pimux-managed: standalone personal terminal workspace.
 set -euo pipefail
-PIMUX_VERSION=0.9.2
+PIMUX_VERSION=0.10.0
 PIMUX_COMMAND=()
 PIMUX_TARGET_SOCKET=''
 PIMUX_SHARED_SERVER=false
@@ -70,6 +70,7 @@ pimux · Personal terminal
   pimux                 Open the main interface; never create a session implicitly
   pimux -n NAME         Create or enter a session, with independent window selection
   pimux ls [query]      List sessions and windows; filter names or directories
+  pimux tmux COMMAND    Run a native tmux command on this workspace's server; no TTY required
   pimux -h              Print this help
   pimux help            Open the searchable help page
   pimux --version       Print the installed version
@@ -105,6 +106,7 @@ pimux · 个人工作终端
   pimux                 打开主界面；没有会话时显示新建提示
   pimux -n NAME         创建或进入命名会话，每个终端独立切换窗口
   pimux ls [关键词]     查看会话和窗口，可按名称或目录筛选
+  pimux tmux 命令       在当前工作空间的服务上执行原生 tmux 命令，无需交互终端
   pimux -h              打印此帮助
   pimux help            打开可搜索的帮助页面
   pimux --version       打印当前版本
@@ -738,7 +740,7 @@ main() {
             [[ -f $file ]] || file="$HOME/.config/pimux/uninstall.sh"
             exec bash "$file" ;;
         -h|--help) [[ $# == 1 ]] || return 2; usage; return ;;
-        ''|ls|doctor|reload|gpu|help|-n) ;;
+        ''|ls|tmux|doctor|reload|gpu|help|-n) ;;
         *) printf_ui '未知命令：%s；会话请用 pimux -n NAME，帮助请用 pimux -h。\n' "$1" >&2; return 2 ;;
     esac
     configure_runtime "$system"
@@ -755,6 +757,10 @@ main() {
         '') load_manager; open_manager ;;
         -n) [[ $# == 2 ]] || { usage >&2; return 2; }; enter_session "$2" ;;
         ls) [[ $# -le 2 ]] || { usage >&2; return 2; }; list_sessions "${2:-}" ;;
+        tmux)
+            shift
+            [[ $# -gt 0 ]] || { usage >&2; return 2; }
+            tmux "$@" ;;
         doctor) [[ $# -le 2 ]] || { usage >&2; return 2; }; doctor "${2:-}" ;;
         reload) [[ $# == 1 ]] || { usage >&2; return 2; }; reload_config ;;
         gpu) [[ $# == 1 ]] || { usage >&2; return 2; }; require_terminal; load_gpu; python_view gpu ;;

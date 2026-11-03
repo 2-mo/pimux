@@ -296,6 +296,40 @@ def test_noninteractive_entry_is_read_only(server):
     assert tmux("list-sessions", "-F", "#{session_name}") == "seed"
 
 
+def test_background_tmux_manages_exact_windows_without_a_terminal(tmp_path, server):
+    env, tmux = server
+    before = tmux("list-panes", "-a", "-F", "#{pane_id} #{pane_pid}")
+    directory = tmp_path / "experiment 'quoted'; $literal"
+    directory.mkdir()
+
+    def call(*args):
+        return subprocess.run([str(SOURCE / "bin/pimux"), "tmux", *args], env=env,
+                              text=True, capture_output=True)
+
+    assert call().returncode == 2
+    created = call("new-window", "-d", "-t", "=seed:", "-n", "experiment 'one'; $literal",
+                   "-c", str(directory), "-P", "-F", "#{window_id} #{pane_id}", "sleep", "60")
+    assert created.returncode == 0, created.stderr
+    window, pane = created.stdout.strip().split()
+    assert window.startswith("@") and pane.startswith("%")
+    assert tmux("display-message", "-p", "-t", pane, "#{window_name}") == "experiment 'one'; $literal"
+    pid = tmux("display-message", "-p", "-t", pane, "#{pane_pid}")
+    assert Path(f"/proc/{pid}/cwd").readlink() == directory
+    renamed = call("rename-window", "-t", window, "evaluation 'two'")
+    assert renamed.returncode == 0, renamed.stderr
+    metadata = call("display-message", "-p", "-t", pane, "#{window_id}\t#{window_name}")
+    assert metadata.stdout == f"{window}\tevaluation 'two'\n"
+    assert not metadata.stderr
+    native_error = subprocess.run(["tmux", "list-panes", "-t", "@999999999"], env=env,
+                                  text=True, capture_output=True)
+    error = call("list-panes", "-t", "@999999999")
+    assert error.returncode == native_error.returncode != 0
+    assert (error.stdout, error.stderr) == (native_error.stdout, native_error.stderr)
+    closed = call("kill-window", "-t", window)
+    assert closed.returncode == 0, closed.stderr
+    assert tmux("list-panes", "-a", "-F", "#{pane_id} #{pane_pid}") == before
+
+
 @pytest.mark.parametrize("close_original", [False, True])
 def test_independent_view_shares_programs_and_preserves_last_reference(tmp_path, server, close_original):
     env, tmux = server
@@ -412,6 +446,12 @@ def test_runtime_routes_new_and_system_servers_separately(server):
                              text=True, capture_output=True, check=True)
         assert "fresh" in fresh.stdout and "seed" not in fresh.stdout
         assert "seed" in old.stdout and "fresh" not in old.stdout
+        for flags, expected in (([], "fresh"), (["--system"], "seed")):
+            background = subprocess.run(
+                [str(SOURCE / "bin/pimux"), *flags, "tmux", "list-sessions", "-F", "#{session_name}"],
+                env=env, text=True, capture_output=True, check=True,
+            )
+            assert background.stdout.strip() == expected
         diagnostics = subprocess.run([str(SOURCE / "bin/pimux"), "doctor"], env=env,
                                      text=True, capture_output=True, check=True)
         pid = tmux("-L", "pimux-3.8", "display-message", "-p", "#{pid}")
@@ -423,6 +463,12 @@ def test_runtime_routes_new_and_system_servers_separately(server):
         for options, session in (([], "seed"), (["-L", "pimux-3.8"], "fresh")):
             tmux(*options, "set-option", "-t", session, "@pimux_launcher", str(SOURCE / "bin/pimux"))
             tmux(*options, "set-option", "-t", session, "status-right", "")
+        managed_env = dict(env, TMUX_PANE=tmux("display-message", "-p", "-t", "=seed:", "#{pane_id}"))
+        background = subprocess.run(
+            [str(SOURCE / "bin/pimux"), "tmux", "display-message", "-p", "#{socket_path}"],
+            env=managed_env, text=True, capture_output=True, check=True,
+        )
+        assert background.stdout.strip() == env["TMUX"].split(",", 1)[0]
         before = tmux("list-panes", "-a", "-F", "#{pane_id} #{pane_pid}")
         subprocess.run(
             ["bash", "-c", 'source "$1"; configure_runtime true; reload_config',
