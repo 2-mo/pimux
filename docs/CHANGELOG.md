@@ -4,6 +4,7 @@
 
 - Add Ctrl-a v for left/right splits without Shift; keep the pipe shortcut and show the letter key in the action menu and prefix hints.
 - Install both split directions on shared tmux servers while preserving each key's original behavior outside PiMux.
+- Reload bindings on the primary PiMux server even when updating from a shared system server; visit each server once.
 - Verify mixed nested splits through shortcuts and the action menu, including the geometry of splitting an existing lower pane.
 
 ## 0.9.0
