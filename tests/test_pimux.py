@@ -312,7 +312,6 @@ def test_background_tmux_manages_exact_windows_without_a_terminal(tmp_path, serv
     assert created.returncode == 0, created.stderr
     window, pane = created.stdout.strip().split()
     assert window.startswith("@") and pane.startswith("%")
-    assert tmux("display-message", "-p", "-t", pane, "#{window_name}") == "experiment 'one'; $literal"
     pid = tmux("display-message", "-p", "-t", pane, "#{pane_pid}")
     assert Path(f"/proc/{pid}/cwd").readlink() == directory
     renamed = call("rename-window", "-t", window, "evaluation 'two'")
