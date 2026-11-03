@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.2
+
+- Show new-window, rename and close-pane shortcuts in the normal footer on wide terminals and prioritize them while Ctrl-a is active. Fit prefix hints to the available width and reserve path space from the rendered labels.
+- Open the action menu with Workspace expanded so common operations are immediately visible.
+- Keep new-session and close hints visible in the manager, including narrow terminals. Name the selected session, window or pane as the close target and show that confirmation is required.
+- Update help and screenshots to distinguish closing a pane from detaching and keeping tasks running.
+
 ## 0.9.1
 
 - Add Ctrl-a v for left/right splits without Shift; keep the pipe shortcut and show the letter key in the action menu and prefix hints.

@@ -17,6 +17,7 @@ import ports
 import proxy_ui
 import network
 from menu_ui import Menu
+from navigation import visible
 
 
 def network_sample():
@@ -112,7 +113,6 @@ def test_network_clipboard_targets_the_requesting_terminal(monkeypatch):
 def test_tree_menu_expands_groups_and_keeps_hidden_shortcuts(tmp_path):
     result = tmp_path / "selection"
     view = Menu(result)
-    view.on_key("KEY_ENTER")
     assert "workspace" in view.expanded and not result.exists()
     view.on_key("KEY_DOWN")
     view.on_key("KEY_LEFT")
@@ -130,8 +130,11 @@ def test_tree_menu_expands_groups_and_keeps_hidden_shortcuts(tmp_path):
         assert view.on_key(key)
         assert result.read_text().strip() == "split-horizontal"
     view = Menu(result)
+    view.selected = "resources"
+    view.on_key("KEY_ENTER")
     view.render(80, 24)
-    assert view.on_key(SimpleNamespace(name="MOUSE_LEFT", mouse_xy=(8, 4)))
+    index = next(index for index, node in enumerate(visible(view.nodes, view.expanded)) if node.identity == "gpu")
+    assert view.on_key(SimpleNamespace(name="MOUSE_LEFT", mouse_xy=(8, index - view.offset + 2)))
     assert result.read_text().strip() == "gpu"
 
 
