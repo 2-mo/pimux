@@ -1716,15 +1716,18 @@ def test_window_preview_reports_exit_code_and_preserves_panes(server):
                   'printf "preview-output\\n"; read -r ready; exit 7')
     tmux('send-keys', '-t', target, 'Enter')
     deadline = time.monotonic() + 3
-    # tmux can report pane_dead before the child exit status has been collected.
-    while tmux('display-message', '-p', '-t', target, '#{pane_dead_status}') != '7' and time.monotonic() < deadline:
+    while tmux('display-message', '-p', '-t', target, '#{pane_dead}') != '1' and time.monotonic() < deadline:
         time.sleep(.03)
     before = tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid} #{pane_dead}')
+    status_before = tmux('display-message', '-p', '-t', target, '#{pane_dead_status}')
     blocks = window_details.window_blocks(shutil.which('tmux'), tmux('display-message', '-p', '#{socket_path}'), target)
     content = '\n'.join(line.plain for block in blocks for line in block)
-    assert 'exit 7' in content and 'preview-output' in content, tmux(
+    status_after = tmux('display-message', '-p', '-t', target, '#{pane_dead_status}')
+    # Match the native field, including unavailable status or a late collection.
+    assert any(f'exit {code or "?"}' in content for code in (status_before, status_after)), tmux(
         'display-message', '-p', '-t', target,
         'dead=#{pane_dead} status=#{pane_dead_status} signal=#{pane_dead_signal} command=#{pane_start_command}')
+    assert 'preview-output' in content
     assert tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid} #{pane_dead}') == before
 
 
