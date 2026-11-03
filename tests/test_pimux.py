@@ -425,11 +425,12 @@ def test_runtime_routes_new_and_system_servers_separately(server):
             tmux(*options, "set-option", "-t", session, "status-right", "")
         before = tmux("list-panes", "-a", "-F", "#{pane_id} #{pane_pid}")
         subprocess.run(
-            ["bash", "-c", 'source "$1"; configure_runtime; refresh_session_themes',
+            ["bash", "-c", 'source "$1"; configure_runtime true; reload_config',
              "test", str(SOURCE / "bin/pimux")], env=env, check=True, capture_output=True,
         )
         for options, session in (([], "seed"), (["-L", "pimux-3.8"], "fresh")):
             assert "__gpu-status" in tmux(*options, "show-options", "-qv", "-t", session, "status-right")
+            assert "split-window -h" in tmux(*options, "list-keys", "-T", "prefix", "v")
             pane = tmux(*options, "display-message", "-p", "-t", session, "#{pane_id}")
             tmux(*options, "set-option", "-p", "-t", pane, "@pimux_command_status", "7")
             assert "#[reverse]" in tmux(*options, "display-message", "-p", "-t", session, "#{E:status-format[0]}")

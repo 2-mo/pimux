@@ -150,9 +150,6 @@ require_terminal() {
 
 reload_config() {
     if tmux list-sessions >/dev/null 2>&1; then
-        if [[ $PIMUX_SHARED_SERVER != true ]]; then
-            tmux source-file "$(theme_file)"
-        fi
         refresh_language
         printf_ui '已重载配置；会话和任务继续运行。前缀为 Ctrl-a。\n'
     else
@@ -162,18 +159,26 @@ reload_config() {
 }
 
 refresh_session_themes() (
-    local sid launcher
+    local sid launcher initial_socket=$PIMUX_TARGET_SOCKET primary_socket
     update_server_theme() {
-        # Update local overrides, including views attached to the older server.
+        # Reload bindings on owned servers; shared servers get scoped overrides.
+        if [[ $PIMUX_SHARED_SERVER != true ]] && tmux list-sessions >/dev/null 2>&1; then
+            tmux source-file "$(theme_file)"
+        fi
         while IFS=$'\t' read -r sid launcher; do
             [[ -n $sid && -n $launcher ]] || continue
             apply_session_theme "$sid"
         done < <(tmux list-sessions -F $'#{session_id}\t#{@pimux_launcher}' 2>/dev/null || true)
     }
     update_server_theme
-    if [[ -f ${PIMUX_RUNTIME_FILE:-$HOME/.config/pimux/runtime.conf} ]]; then
-        configure_runtime; update_server_theme
-        configure_runtime true; update_server_theme
+    configure_runtime
+    primary_socket=$PIMUX_TARGET_SOCKET
+    if [[ $primary_socket != "$initial_socket" ]]; then
+        update_server_theme
+    fi
+    configure_runtime true
+    if [[ $PIMUX_TARGET_SOCKET != "$initial_socket" && $PIMUX_TARGET_SOCKET != "$primary_socket" ]]; then
+        update_server_theme
     fi
 )
 
