@@ -1,6 +1,6 @@
 # PiMux 使用说明
 
-[English](guide.md) · [快速开始](README.zh-CN.md)
+[English](guide.md) · [快速开始](README.zh-CN.md) · [Agent 后台管理](agents.zh-CN.md)
 
 ![PiMux 工作空间示意](preview.svg)
 

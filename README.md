@@ -23,6 +23,7 @@ pimux
 - Press `n` to create a session; `/` searches projects, programs and paths, and Enter jumps to the selected pane.
 - Use the grouped menu for **GPU, IP, ports, proxy and settings**. `Tab` switches to it; `q` returns.
 - Inside a session: press and release `Ctrl-a`, then `-` / `v` to split top/bottom or left/right, `h` for the menu, or `d` to detach and keep tasks running.
+- Let your agent organize experiment terminals with `pimux tmux`: [background management](docs/agents.md).
 
 ## Update
 

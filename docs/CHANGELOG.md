@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.0
+
+- Add `pimux tmux COMMAND ...` for background terminal management without an interactive terminal. Preserve native arguments, output and exit status.
+- Route backend commands to the configured PiMux server, the current managed workspace or the explicitly selected system server.
+- Document agent-directed window creation, naming, splits, output inspection, retained exit state, reuse and cleanup by exact window/pane IDs.
+
 ## 0.9.2
 
 - Show new-window, rename and close-pane shortcuts in the normal footer on wide terminals and prioritize them while Ctrl-a is active. Fit prefix hints to the available width and reserve path space from the rendered labels.

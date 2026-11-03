@@ -1,6 +1,6 @@
 [project]
 name = "pimux-dev"
-version = "0.9.2"
+version = "0.10.0"
 description = "Terminal view runtime and development checks for PiMux"
 requires-python = ">=3.10"
 dependencies = [
