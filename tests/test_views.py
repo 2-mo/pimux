@@ -125,6 +125,10 @@ def test_tree_menu_expands_groups_and_keeps_hidden_shortcuts(tmp_path):
     view.expanded.clear()
     assert view.on_key("l")
     assert result.read_text().strip() == "language"
+    for key in ("v", "|"):
+        view = Menu(result)
+        assert view.on_key(key)
+        assert result.read_text().strip() == "split-horizontal"
     view = Menu(result)
     view.render(80, 24)
     assert view.on_key(SimpleNamespace(name="MOUSE_LEFT", mouse_xy=(8, 4)))

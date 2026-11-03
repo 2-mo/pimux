@@ -35,6 +35,8 @@ class Menu:
         name = getattr(key, "name", None) or key
         if not isinstance(name, str):
             return False
+        if name == "|":
+            name = "v"
         nodes = visible(self.nodes, self.expanded)
         index = next((i for i, node in enumerate(nodes) if node.identity == self.selected), 0)
         node = nodes[index]
