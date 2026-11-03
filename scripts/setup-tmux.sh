@@ -65,7 +65,7 @@ install_files() (
     install_asset "$source_dir/config/tmux.conf" "$config_dir/tmux.conf" 644
     install_asset "$source_dir/config/starship.toml" "$config_dir/starship.toml" 644
     install_asset "$source_dir/scripts/uninstall.sh" "$config_dir/uninstall.sh" 644
-    for file in ui.bash manager.bash manager_ui.py navigation.py menu_ui.py gpu.bash gpu.py gpu_ui.py inspect_ui.py ports.py network.py window_details.py utility_ui.py environment.py environment_ui.py environment.bash proxy_ui.py proxy_status.py proxy.bash shell.bash bashrc; do
+    for file in ui.bash manager.bash manager_ui.py navigation.py menu_ui.py gpu.bash gpu.py gpu_ui.py inspect_ui.py ports.py network.py window_details.py utility_ui.py environment.py environment_ui.py environment.bash proxy_ui.py proxy_status.py proxy.bash command_status.bash shell.bash bashrc; do
         install_asset "$source_dir/lib/$file" "$config_dir/$file" 644
     done
     install_command_path "$target_home"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # pimux-managed: standalone personal terminal workspace.
 set -euo pipefail
-PIMUX_VERSION=0.8.0
+PIMUX_VERSION=0.8.1
 PIMUX_COMMAND=()
 PIMUX_TARGET_SOCKET=''
 PIMUX_SHARED_SERVER=false
@@ -313,12 +313,16 @@ install_shared_bindings() {
 apply_session_theme() {
     local target=$1 file line row
     file=$(theme_file)
-    # Local arrays shadow inherited arrays, so preserve the window-list row.
+    # Keep the window-list layout and apply PiMux formats only to this session.
     row=$(tmux show-options -Aqv -t "$target" 'status-format[0]')
+    row=${row//'#{E:window-status-format}'/'#{E:@pimux_window_status}'}
+    row=${row//'#{E:window-status-current-format}'/'#{E:@pimux_window_status_current}'}
+    row=${row//'#{T:window-status-format}'/'#{T:@pimux_window_status}'}
+    row=${row//'#{T:window-status-current-format}'/'#{T:@pimux_window_status_current}'}
     tmux set-option -t "$target" 'status-format[0]' "$row"
     while IFS= read -r line; do
         case $line in
-            'set -g status'*|'set -g mouse '*|'set -g @pimux_hint_'*)
+            'set -g status'*|'set -g mouse '*|'set -g @pimux_hint_'*|'set -g @pimux_window_status'*)
                 printf "set -t '%s' %s\n" "$target" "${line#set -g }" ;;
         esac
     done < "$file" | tmux source-file -
