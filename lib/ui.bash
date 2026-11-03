@@ -74,6 +74,10 @@ declare -A PIMUX_EN=(
     [' 关闭窗口 %s，影响所有连接？[y/N] ']=' Close window %s for every connection? [y/N] '
     ['会话已关闭或不存在。']='Session is already closed or no longer exists.'
     ['窗口已关闭或不存在。']='Window is already closed or no longer exists.'
+    ['分屏已关闭或不存在。']='Pane is already closed or no longer exists.'
+    ['分屏已关闭或移出，请重新选择。']='Pane has closed or moved; select again.'
+    ['请先选择一个窗口或分屏。']='Select a window or pane first.'
+    [' 关闭分屏 %s 及其中的程序，影响所有连接？[y/N] ']=' Close pane %s and its programs for every connection? [y/N] '
     ['运行配置应为三行：新版程序路径、socket 名称、系统程序路径：%s\n']='Runtime config must have three lines: new binary, socket name, system binary: %s\n'
     ['运行配置中的程序路径或 socket 名称无效：%s\n']='Invalid binary path or socket name in runtime config: %s\n'
     ['请先安装 tmux（Ubuntu：sudo apt install tmux）。\n']='Install tmux first (Ubuntu: sudo apt install tmux).\n'
@@ -183,7 +187,7 @@ read_ui_key() {
                 fi
                 return 0
             fi
-            if [[ $PIMUX_KEY == $'\e[5' || $PIMUX_KEY == $'\e[6' ]]; then
+            if [[ $PIMUX_KEY == $'\e['[1345678] ]]; then
                 tail=''; IFS= read -rsn1 -t 0.05 tail || true; PIMUX_KEY+=$tail
             fi
         else

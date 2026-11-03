@@ -848,7 +848,7 @@ def test_search_gpu_popup_and_reload_preserve_running_panes(tmp_path, server):
         wait_for(lambda: '会话管理'.encode() in output)
         # Reach IP through the tree; keep the other direct tool shortcuts covered.
         for key, marker in [(b'e', '默认设置'.encode()), (b'o', 'PiMux 设置'.encode()), (b'g', b'GPU 0'),
-                            (b't', 'TCP 端口'.encode()), (b'\t' + b'\x1b[B' * 6 + b'\r', 'IP 与网络'.encode()), (b'?', '快捷键'.encode())]:
+                            (b't', 'TCP 端口'.encode()), (b'\t' + b'\x1b[B' * 7 + b'\r', 'IP 与网络'.encode()), (b'?', '快捷键'.encode())]:
             output.clear()
             os.write(master, key)
             wait_for(lambda: marker in output)
@@ -937,6 +937,7 @@ def test_manager_mouse_expands_scrolls_and_opens_search_result(server, columns):
     before = tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid}')
     master, slave = os.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 14, columns, 0, 0))
+    original_terminal = termios.tcgetattr(slave)
     script = '''source "$1"
 configure_runtime
 load_manager
@@ -965,7 +966,15 @@ manager
         output.clear()
         os.write(master, f'\x1b[<65;{item_x};5M'.encode())
         wait_for(b'mouse-07')
-        os.write(master, b'/mouse-12')
+        os.write(master, b'/mouse-92')
+        wait_for('没有匹配'.encode())
+        output.clear()
+        # Home/End, Delete and insertion edit the middle of the search.
+        os.write(master, b'\x1b[H\x1b[3~m\x1b[F\x1b[D\x1b[D\x1b[3~1')
+        wait_for(b'mouse-12')
+        output.clear()
+        # Ctrl-U clears the whole query, even with the cursor before its end.
+        os.write(master, b'\x15mouse-12\x1b[D\x7f1')
         wait_for(b'mouse-12')
         output.clear()
         # Release and out-of-list clicks must not enter or corrupt the filter.
@@ -975,6 +984,7 @@ manager
         os.write(master, f'\x1b[<0;{item_x};4M'.encode())
         wait_for(f'OPEN:$0:{wanted}'.encode())
         assert process.wait(timeout=5) == 0
+        assert termios.tcgetattr(slave) == original_terminal
         assert b'\x1b[?1000l\x1b[?1006l' in output
         assert tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid}') == before
     finally:
@@ -1086,7 +1096,7 @@ exit "$UPDATE_DOWNLOAD_STATUS"
     assert not Path(log.read_text()).exists()
 
 
-def test_mouse_click_passes_through_tmux_popup_to_manager(server):
+def test_mouse_click_passes_through_tmux_popup_to_manager(tmp_path, server):
     env, tmux = server
     tmux('source-file', str(SOURCE / 'config/tmux.conf'))
     tmux('set-option', '-g', '@pimux_launcher', str(SOURCE / 'bin/pimux'))
@@ -1094,6 +1104,10 @@ def test_mouse_click_passes_through_tmux_popup_to_manager(server):
     tmux('set-environment', '-g', 'PIMUX_LANGUAGE_FILE', env['PIMUX_LANGUAGE_FILE'])
     original = tmux('display-message', '-p', '-t', 'seed', '#{window_id}')
     wanted = tmux('new-window', '-d', '-t', 'seed', '-n', 'mouse-target', '-P', '-F', '#{window_id}')
+    directory = tmp_path / 'pane-target'
+    directory.mkdir()
+    wanted_pane = tmux('split-window', '-d', '-t', wanted, '-c', str(directory), '-P', '-F', '#{pane_id}', 'sleep 60')
+    panes_before = set(tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid}').splitlines())
     master, slave = os.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 30, 120, 0, 0))
     client = subprocess.Popen(['tmux', 'attach-session', '-t', 'seed'], env=env,
@@ -1121,10 +1135,21 @@ def test_mouse_click_passes_through_tmux_popup_to_manager(server):
                                   '-x', '0', '-y', '0', '-w', '100', '-h', '20', command], env=env)
         wait_for(lambda: '点击进入'.encode() in output)
         output.clear()
-        os.write(master, b'/mouse-target')
+        os.write(master, b'/pane-target')
         wait_for(lambda: b'mouse-target' in output and b'[1/1]' in output)
         output.clear()
-        os.write(master, b'\x1b[<0;10;12M\x1b[<0;10;12m')
+        os.write(master, b'\x1b[<0;10;9M\x1b[<0;10;9m')
+        wait_for(lambda: '调整分屏'.encode() in output)
+        os.write(master, b'h')
+        wait_for(lambda: len(set(tmux('list-panes', '-t', wanted, '-F', '#{pane_height}').splitlines())) == 1)
+        before_width = int(tmux('display-message', '-p', '-t', wanted_pane, '#{pane_width}'))
+        os.write(master, b'r\x1b[C\x1b[C')
+        wait_for(lambda: abs(int(tmux('display-message', '-p', '-t', wanted_pane, '#{pane_width}')) - before_width) == 4)
+        output.clear()
+        os.write(master, b'\rq')
+        wait_for(lambda: b'mouse-target' in output and b'[1/1]' in output)
+        output.clear()
+        os.write(master, b'\x1b[<0;10;13M\x1b[<0;10;13m')
         wait_for(lambda: 'IP 与网络'.encode() in output)
         output.clear()
         os.write(master, b'q')
@@ -1132,6 +1157,8 @@ def test_mouse_click_passes_through_tmux_popup_to_manager(server):
         os.write(master, b'\x1b[<0;46;5M\x1b[<0;46;5m')
         wait_for(lambda: tmux('list-clients', '-F', '#{window_id}') == wanted)
         assert popup.wait(timeout=5) == 0
+        assert tmux('list-clients', '-F', '#{pane_id}') == wanted_pane
+        assert set(tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid}').splitlines()) == panes_before
         assert tmux('display-message', '-p', '-t', '=seed:', '#{window_id}') == original
         os.write(master, b'\x01d')
         assert client.wait(timeout=5) == 0
@@ -1144,6 +1171,97 @@ def test_mouse_click_passes_through_tmux_popup_to_manager(server):
             popup.wait(timeout=5)
         os.close(master)
         os.close(slave)
+
+
+def test_manager_closes_only_the_selected_pane_after_confirmation(tmp_path, server):
+    env, tmux = server
+    directory = tmp_path / 'close-this-pane'
+    directory.mkdir()
+    target = tmux('split-window', '-d', '-t', 'seed', '-c', str(directory), '-P', '-F', '#{pane_id}', 'sleep 120')
+    before = set(tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid}').splitlines())
+    master, slave = os.openpty()
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 24, 110, 0, 0))
+    process = subprocess.Popen([str(SOURCE / 'bin/pimux')], env=env,
+                               stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
+    output = bytearray()
+
+    def wait_for(condition):
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            if condition():
+                return
+            if select.select([master], [], [], .05)[0]:
+                output.extend(os.read(master, 65536))
+        pytest.fail(output.decode(errors='replace')[-1500:])
+
+    try:
+        wait_for(lambda: b'seed' in output)
+        output.clear()
+        os.write(master, b'/close-this-pane')
+        wait_for(lambda: b'[1/1]' in output)
+        output.clear()
+        os.write(master, b'\t\tx')
+        wait_for(lambda: '关闭分屏'.encode() in output)
+        assert set(tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid}').splitlines()) == before
+        os.write(master, b'y')
+        wait_for(lambda: target not in tmux('list-panes', '-a', '-F', '#{pane_id}').splitlines())
+        assert set(tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid}').splitlines()) == {
+            row for row in before if not row.startswith(target + ' ')}
+        os.write(master, b'q')
+        assert process.wait(timeout=5) == 0
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            process.wait(timeout=5)
+        os.close(master)
+        os.close(slave)
+
+
+def test_layout_controls_preserve_processes_and_never_retarget_a_closed_pane(server):
+    from layout_ui import Layout
+
+    _, tmux = server
+    seed = tmux('list-panes', '-t', 'seed', '-F', '#{pane_id} #{pane_pid}')
+    window, first = tmux('new-window', '-d', '-t', 'seed', '-P', '-F', '#{window_id} #{pane_id}', 'sleep 120').split()
+    tmux('resize-window', '-t', window, '-x', '120', '-y', '36')
+    for _ in range(2):
+        tmux('split-window', '-d', '-t', first, 'sleep 120')
+    processes = set(tmux('list-panes', '-t', window, '-F', '#{pane_id} #{pane_pid}').splitlines())
+    active = tmux('display-message', '-p', '-t', window, '#{pane_id}')
+    view = Layout(shutil.which('tmux'), tmux('display-message', '-p', '#{socket_path}'), first)
+    assert view.refresh() and len(view.panes) == 3
+    view.on_key('h')
+    assert max(pane.width for pane in view.panes) - min(pane.width for pane in view.panes) <= 1
+    assert len({pane.height for pane in view.panes}) == 1
+    view.on_key('v')
+    assert max(pane.height for pane in view.panes) - min(pane.height for pane in view.panes) <= 1
+    assert len({pane.width for pane in view.panes}) == 1
+    view.on_key('t')
+    positions = tmux('list-panes', '-t', window, '-F', '#{pane_left} #{pane_top}').splitlines()
+    assert len({row.split()[0] for row in positions}) > 1
+    assert len({row.split()[1] for row in positions}) > 1
+    before_index = view.panes[1].index
+    view.on_key('n')
+    assert next(pane.index for pane in view.panes if pane.identity == first) == before_index
+    assert tmux('display-message', '-p', '-t', window, '#{pane_id}') == active
+    view.on_key('h')
+    width = next(pane.width for pane in view.panes if pane.identity == first)
+    view.on_key('r')
+    assert view.resizing
+    view.on_key('KEY_RIGHT')
+    view.on_key('KEY_RIGHT')
+    assert abs(next(pane.width for pane in view.panes if pane.identity == first) - width) == 4
+    assert not view.on_key('KEY_ESCAPE') and not view.resizing
+    view.on_key('KEY_TAB')
+    assert view.pane != first
+    assert set(tmux('list-panes', '-t', window, '-F', '#{pane_id} #{pane_pid}').splitlines()) == processes
+    tmux('kill-pane', '-t', view.pane)
+    before_layout = tmux('display-message', '-p', '-t', window, '#{window_layout}')
+    view.on_key('v')
+    assert view.failed and not view.panes
+    assert tmux('display-message', '-p', '-t', window, '#{window_layout}') == before_layout
+    assert tmux('list-panes', '-t', 'seed:0', '-F', '#{pane_id} #{pane_pid}') == seed
+    assert view.on_key('q')
 
 
 def test_proxy_shell_apply_disable_restore_and_validation(tmp_path):

@@ -32,6 +32,8 @@ class Entry:
     expanded: bool
     pinned: bool
     selected: bool
+    pane: str = ""
+    pane_index: str = ""
 
 
 def path_label(value, width):
@@ -65,10 +67,10 @@ def entry_row(entry, width, *, searching=False):
             row.stylize(SELECTED)
         return row
     row.append("    ")
-    if searching:
+    if searching or entry.pane:
         row.append_text(text(entry.session + " / ", MUTED))
     index, _, name = entry.name.partition(":")
-    row.append_text(text(index + ":", MUTED))
+    row.append_text(text(index + ("." + entry.pane_index if entry.pane else "") + ":", CYAN if entry.pane else MUTED))
     row.append_text(text(name, "bold " + (CYAN if entry.selected else TEXT)))
     row.no_wrap, row.overflow = True, "ellipsis"
     program_width = 16 if width >= 64 else min(12, max(7, width // 4))
@@ -86,7 +88,7 @@ def entry_row(entry, width, *, searching=False):
 
 
 def render(entries, navigation, *, width, height, selected, count, query="", searching=False, error="",
-           sidebar_width=0, nav_focused=False, nav_selected="manager", nav_offset=0):
+           sidebar_width=0, nav_focused=False, nav_selected="manager", nav_offset=0, query_cursor=0):
     heading = text(" PiMux", TITLE_STYLE)
     heading.append(" · ", style=MUTED)
     heading.append(tr("Session manager", "会话管理"), style=TEXT)
@@ -95,16 +97,18 @@ def render(entries, navigation, *, width, height, selected, count, query="", sea
     search_width = max(1, width - position.cell_len)
     search = text(" / ", "color(215)")
     if searching:
-        search.append_text(input_field(query, len(query), max(1, search_width - 3)))
+        search.append_text(input_field(query, query_cursor, max(1, search_width - 3)))
+    elif query:
+        search.append_text(text(query, CYAN))
     else:
-        search.append(tr("Search sessions, programs or paths", "搜索会话、程序或目录"), style=MUTED)
+        search.append(tr("Find a pane by project, program or path", "按项目、程序或目录搜索分屏"), style=MUTED)
     search.no_wrap, search.overflow = True, "ellipsis"
     search_bar = Table.grid(Column(width=search_width), Column(width=position.cell_len, justify="right"), expand=True)
     search_bar.add_row(search, position)
     main_width = width - sidebar_width - 2 if sidebar_width else width
     menu_heading = text(" " + tr("Menu", "菜单"), "bold " + (CYAN if nav_focused else PURPLE))
     menu_heading.append(" · Tab", style=MUTED)
-    sessions_heading = text(" " + tr("Sessions", "会话"), "bold " + (PURPLE if nav_focused else CYAN))
+    sessions_heading = text(" " + (tr("Panes", "分屏") if searching or query else tr("Sessions", "会话")), "bold " + (PURPLE if nav_focused else CYAN))
     if not sidebar_width:
         sessions_heading = text(" " + tr("Menu · Tab", "菜单 · Tab"), MUTED)
     model = {node.identity: node for node in navigation_entries("home")}
@@ -124,9 +128,9 @@ def render(entries, navigation, *, width, height, selected, count, query="", sea
     session_rows = [entry_row(replace(entry, selected=entry.selected and not nav_focused),
                               main_width, searching=bool(query)) for entry in entries]
     if not count:
-        session_rows.extend([Text(""), text(tr(" No matching windows" if query else " No sessions yet",
-                                               " 没有匹配的窗口" if query else " 暂无会话"), "bold " + TEXT),
-                             key_hints([(" Esc", tr("clear search", "清除搜索"))] if query else
+        session_rows.extend([Text(""), text(tr(" No matching panes" if query or searching else " No sessions yet",
+                                               " 没有匹配的分屏" if query or searching else " 暂无会话"), "bold " + TEXT),
+                             key_hints([(" Esc", tr("clear search", "清除搜索"))] if query or searching else
                                        [(" n", tr("new session", "新建会话")), ("Enter", tr("confirm", "确认"))])])
     body = [heading, search_bar]
     if sidebar_width:
@@ -147,6 +151,8 @@ def render(entries, navigation, *, width, height, selected, count, query="", sea
             hints = [("↑↓", ""), ("←→", ""), ("Enter", tr("open", "进入")), ("Tab", ""), ("q", tr("back", "返回"))]
     elif searching:
         hints = [("↑↓", tr("select", "选择")), ("Enter", tr("open", "进入")), ("Esc", tr("clear", "清除"))]
+        if width >= 80:
+            hints.insert(1, ("←→", tr("edit", "编辑")))
     else:
         hints = [("Tab", tr("menu", "菜单")), ("/", tr("search", "搜索")), ("Enter", tr("open", "进入"))]
         if width >= 90:
@@ -166,22 +172,23 @@ def main():
     try:
         width, height, selected, count, searching = (int(next(fields)) for _ in range(5))
         query, error = next(fields), next(fields)
+        query_cursor = int(next(fields))
         sidebar_width, nav_focused = int(next(fields)), next(fields) == "1"
         nav_selected, nav_offset = next(fields), int(next(fields))
         navigation = [(next(fields), next(fields) == "1") for _ in range(int(next(fields)))]
         entries = []
         for _ in range(int(next(fields))):
-            session, name, program, path, windows = (
-                next(fields).replace("\n", "?").replace("\t", "?") for _ in range(5))
+            session, name, program, path, windows, pane, pane_index = (
+                next(fields).replace("\n", "?").replace("\t", "?") for _ in range(7))
             expanded, pinned, chosen = (next(fields) == "1" for _ in range(3))
-            entries.append(Entry(session, name, program, path, windows, expanded, pinned, chosen))
+            entries.append(Entry(session, name, program, path, windows, expanded, pinned, chosen, pane, pane_index))
     except (ValueError, StopIteration):
         return 2
     with console.capture() as capture:
         console.print(render(entries, navigation, width=width, height=height, selected=selected,
                              count=count, query=query, searching=bool(searching), error=error,
                              sidebar_width=sidebar_width, nav_focused=nav_focused,
-                             nav_selected=nav_selected, nav_offset=nav_offset), end="")
+                             nav_selected=nav_selected, nav_offset=nav_offset, query_cursor=query_cursor), end="")
     sys.stdout.write("\033[H\033[2J" + capture.get().rstrip("\n"))
     return 0
 

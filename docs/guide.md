@@ -73,6 +73,12 @@ A **bold, inverted window number** means a PiMux Bash foreground command returne
 
 After upgrading, open a new window with `Ctrl-a c` to enable reporting in a new shell. Existing programs keep running.
 
+## Find and arrange panes
+
+Press `/` in the manager to list individual panes across projects, including panes that are not focused. Search by session, window, foreground program name or directory, and press Enter or click a result to jump directly to that pane. A label such as `2.1:train` means window 2, pane 1. Left/Right moves the search cursor, Home/End jumps to either end, Backspace/Delete edits at the cursor, and Ctrl-U clears the query. Esc clears the search. Returning from another tool preserves the selected pane and query.
+
+Choose **Workspace → Arrange panes** from the home screen or `Ctrl-a h`. The home screen targets the selected window or search result; the action menu targets your current pane. Equal columns, equal rows, tiling and swapping panes are available in one place. Choose **Adjust size**, then hold the arrows to resize continuously; Enter or Esc finishes resizing. Tab changes the target pane, and q returns. Layout changes apply to everyone viewing that window; running programs keep their processes. Pane focus follows tmux's shared window behavior.
+
 ## IP addresses and subnet routes
 
 Choose **IP** in the main interface, press `i`, or use `pimux ip`. The page shows each interface's IPv4/IPv6 addresses and CIDR subnets, plus default and subnet routes with their device, gateway and routing table. Multiple addresses on one interface and policy routing tables remain distinct.
