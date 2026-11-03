@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.1
+
+- Make a window's number bold and inverted when a PiMux Bash foreground command exits unsuccessfully. Ctrl-C is treated as cancellation.
+- Track exit status per pane: success clears only that pane, and closed panes stop contributing. Shared clients and other splits retain their own reports.
+- Show the last command exit code in window previews. Existing Bash shells need a new window after upgrading to load the prompt integration.
+
 ## 0.8.0
 
 - Unify the home screen and Ctrl-a h around a navigation tree: Workspace, Resources, Network and Settings, with built-in symbols and existing action keys.

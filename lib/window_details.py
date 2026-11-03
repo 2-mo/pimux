@@ -20,11 +20,11 @@ def window_blocks(binary, socket, target):
         return result.stdout
 
     fields = "\t".join("#{" + name + "}" for name in (
-        "pane_id", "pane_pid", "pane_dead", "pane_dead_status", "pane_current_command", "pane_current_path"))
+        "pane_id", "pane_pid", "pane_dead", "pane_dead_status", "pane_current_command", "pane_current_path", "@pimux_command_status"))
     rows = tmux("list-panes", "-t", target, "-F", fields)
     blocks = []
     for row in rows.splitlines():
-        pane, pid, dead, code, program, cwd = row.split("\t", 5)
+        pane, pid, dead, code, program, cwd, command_status = row.split("\t", 6)
         if dead == "1":
             state = tr("Exited", "已退出") + f" · exit {code or '?'}"
             style = "green" if code == "0" else "red"
@@ -32,6 +32,9 @@ def window_blocks(binary, socket, target):
             idle = program in {"bash", "zsh", "fish", "sh", "dash", "ksh"}
             state = tr("Shell idle", "shell 空闲") if idle else tr("Process alive", "进程存活")
             style = MUTED_STYLE if idle else "green"
+            if command_status.isdigit() and int(command_status):
+                state += tr(" · last command exit ", " · 上次命令退出码 ") + command_status
+                style = "yellow"
             try:
                 cwd = str(Path(f"/proc/{pid}/cwd").readlink())
             except OSError:

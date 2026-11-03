@@ -21,3 +21,5 @@ source "$(dirname -- "${BASH_SOURCE[0]}")/environment.bash"
 pimux_environment_shell_init
 source "$(dirname -- "${BASH_SOURCE[0]}")/proxy.bash"
 pimux_proxy_shell_init
+source "$(dirname -- "${BASH_SOURCE[0]}")/command_status.bash"
+pimux_command_status_init

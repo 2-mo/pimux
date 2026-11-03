@@ -69,6 +69,10 @@ Press `Ctrl-a`, release it, then press the action key. A bright orange badge sho
 
 In the manager, `n` creates a session with the current directory name prefilled: Enter accepts, or edit the name or clear it to cancel. `x` closes the selected item after confirmation, and `q` returns. The GPU popup refreshes every second. Click a card or use the arrows to select a GPU; the wheel moves between rows, and Page Up/Down changes pages. Press `d` for memory capacity, temperature, power and compute processes. Expanded details retain full process paths and show launch commands and working directories when visible to your Linux user. Long lines wrap, and the wheel or Page Up/Down scrolls through all details; arrows still select GPUs. Press `r` to refresh or `q` / Esc to return. Both popups belong to the current client and do not replace another terminal's application pane.
 
+A **bold, inverted window number** means a PiMux Bash foreground command returned a nonzero exit code. The next successful command in that pane clears its report; another split pane's failure keeps the window highlighted. Ctrl-C counts as cancellation. The indicator follows Bash's command and pipeline status, without interpreting log text. Select a window and press `d` in the manager to see its panes and last exit codes.
+
+After upgrading, open a new window with `Ctrl-a c` to enable reporting in a new shell. Existing programs keep running.
+
 ## IP addresses and subnet routes
 
 Choose **IP** in the main interface, press `i`, or use `pimux ip`. The page shows each interface's IPv4/IPv6 addresses and CIDR subnets, plus default and subnet routes with their device, gateway and routing table. Multiple addresses on one interface and policy routing tables remain distinct.

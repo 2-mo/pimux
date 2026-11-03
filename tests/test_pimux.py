@@ -419,6 +419,7 @@ def test_runtime_routes_new_and_system_servers_separately(server):
         # Theme updates must reach pimux on both servers, leaving other sessions alone.
         tmux("new-session", "-d", "-s", "personal")
         tmux("set-option", "-t", "personal", "status-right", "personal status")
+        personal_options = tmux("show-options", "-t", "personal")
         for options, session in (([], "seed"), (["-L", "pimux-3.8"], "fresh")):
             tmux(*options, "set-option", "-t", session, "@pimux_launcher", str(SOURCE / "bin/pimux"))
             tmux(*options, "set-option", "-t", session, "status-right", "")
@@ -429,7 +430,11 @@ def test_runtime_routes_new_and_system_servers_separately(server):
         )
         for options, session in (([], "seed"), (["-L", "pimux-3.8"], "fresh")):
             assert "__gpu-status" in tmux(*options, "show-options", "-qv", "-t", session, "status-right")
+            pane = tmux(*options, "display-message", "-p", "-t", session, "#{pane_id}")
+            tmux(*options, "set-option", "-p", "-t", pane, "@pimux_command_status", "7")
+            assert "#[reverse]" in tmux(*options, "display-message", "-p", "-t", session, "#{E:status-format[0]}")
         assert tmux("show-options", "-qv", "-t", "personal", "status-right") == "personal status"
+        assert tmux("show-options", "-t", "personal") == personal_options
         assert tmux("list-panes", "-a", "-F", "#{pane_id} #{pane_pid}") == before
     finally:
         tmux("-L", "pimux-3.8", "kill-server")
@@ -1479,6 +1484,80 @@ def test_window_preview_reports_exit_code_and_preserves_panes(server):
     content = '\n'.join(line.plain for block in blocks for line in block)
     assert 'exit 7' in content and 'preview-output' in content
     assert tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid} #{pane_dead}') == before
+
+
+def test_command_failures_mark_only_the_window_number_and_preserve_shell_status(tmp_path, server):
+    import window_details
+
+    env, tmux = server
+    tmux('source-file', str(SOURCE / 'config/tmux.conf'))
+    rc = tmp_path / 'command-status.bash'
+    rc.write_text(f'''source "{SOURCE / 'lib/bashrc'}"
+pimux_command_status_init
+PROMPT_COMMAND+=('PS1="__PIMUX_READY__> "')
+''')
+    window, first = tmux('new-window', '-d', '-t', 'seed', '-n', 'commands', '-P', '-F',
+                         '#{window_id} #{pane_id}', 'bash', '--noprofile', '--rcfile', str(rc), '-i').split()
+    second = tmux('split-window', '-d', '-t', first, '-P', '-F', '#{pane_id}',
+                  'bash', '--noprofile', '--rcfile', str(rc), '-i')
+
+    def wait_for(condition):
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if condition():
+                return
+            time.sleep(.03)
+        pytest.fail(tmux('capture-pane', '-p', '-t', first) + tmux('capture-pane', '-p', '-t', second))
+
+    def status(pane):
+        return tmux('show-options', '-pqv', '-t', pane, '@pimux_command_status')
+
+    def output(pane):
+        return tmux('capture-pane', '-p', '-t', pane, '-S', '-100')
+
+    def command(pane, value):
+        prompts = output(pane).count('__PIMUX_READY__>')
+        tmux('send-keys', '-t', pane, '-l', value)
+        tmux('send-keys', '-t', pane, 'Enter')
+        wait_for(lambda: output(pane).count('__PIMUX_READY__>') > prompts)
+
+    def highlighted():
+        number = tmux('display-message', '-p', '-t', first, '#{window_index}')
+        for key in ('window-status-format', 'window-status-current-format'):
+            label = tmux('display-message', '-p', '-t', first, '#{E:' + key + '}')
+            assert ('#[bold]#[reverse]' + number + '#[nobold]#[noreverse]') in label
+
+    wait_for(lambda: status(first) == '0' and status(second) == '0' and
+             '__PIMUX_READY__>' in output(first) and '__PIMUX_READY__>' in output(second))
+    command(first, 'false')
+    assert status(first) == '1'
+    highlighted()
+    assert '#[reverse]' not in tmux('display-message', '-p', '-t', 'seed:0', '#{E:window-status-format}')
+    command(first, '')  # Empty input must retain the failed command's status.
+    assert status(first) == '1'
+    command(first, 'printf "preserved=%s pipes=%s\\n" "$?" "${PIPESTATUS[*]}"')
+    assert 'preserved=1 pipes=1' in output(first) and status(first) == '0'
+    command(first, 'false | true')
+    command(first, 'printf "pipeline=%s\\n" "${PIPESTATUS[*]}"')
+    assert 'pipeline=1 0' in output(first) and status(first) == '0'
+    command(first, 'set -o pipefail; false | true')
+    assert status(first) == '1'
+    command(second, "bash -c 'exit 7'")
+    command(first, 'true')
+    highlighted()  # Success in one pane must not erase another pane's failure.
+    blocks = window_details.window_blocks(shutil.which('tmux'), tmux('display-message', '-p', '#{socket_path}'), window)
+    assert 'exit 7' in '\n'.join(line.plain for block in blocks for line in block)
+    command(second, 'true')
+    assert '#[reverse]' not in tmux('display-message', '-p', '-t', first, '#{E:window-status-format}')
+    prompts = output(first).count('__PIMUX_READY__>')
+    tmux('send-keys', '-t', first, 'sleep 30', 'Enter')
+    wait_for(lambda: tmux('display-message', '-p', '-t', first, '#{pane_current_command}') == 'sleep')
+    tmux('send-keys', '-t', first, 'C-c')
+    wait_for(lambda: output(first).count('__PIMUX_READY__>') > prompts)
+    assert status(first) == '0'
+    command(second, 'false')
+    tmux('kill-pane', '-t', second)
+    assert '#[reverse]' not in tmux('display-message', '-p', '-t', first, '#{E:window-status-format}')
 
 def test_proxy_icon_detects_legacy_foreground_process_without_restarting_it(server):
     env, tmux = server
