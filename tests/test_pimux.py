@@ -809,7 +809,8 @@ def test_language_menu_persists_and_syncs_only_pimux_across_servers(server):
         os.write(first_tty, b"\x1b")
         wait_for(lambda: "__client" not in tmux("show-messages", "-J"))
         os.write(first_tty, b"\x01/")
-        wait_for(lambda: "新建 shell".encode() in outputs[first_tty])
+        # The header identifies the help screen; binding rows may be below the fold.
+        wait_for(lambda: "PiMux · 使用帮助".encode() in outputs[first_tty])
         assert not tmux("list-clients", "-F", "#{pane_mode}")
         os.write(first_tty, b"q")
         wait_for(lambda: "__help" not in tmux("show-messages", "-J"))
@@ -838,7 +839,7 @@ def test_language_menu_persists_and_syncs_only_pimux_across_servers(server):
         wait_for(lambda: "__client" not in tmux("-L", "parallel", "show-messages", "-J"))
         outputs[third_tty].clear()
         os.write(third_tty, b"\x01/")
-        wait_for(lambda: b"New shell window" in outputs[third_tty])
+        wait_for(lambda: "PiMux · Help".encode() in outputs[third_tty])
         os.write(third_tty, b"q")
         wait_for(lambda: "__help" not in tmux("-L", "parallel", "show-messages", "-J"))
         outputs[third_tty].clear()
@@ -1205,7 +1206,7 @@ def test_mouse_click_passes_through_tmux_popup_to_manager(tmp_path, server):
         command = shlex.join([str(SOURCE / 'bin/pimux'), '__manager', socket, tty, 'windows'])
         popup = subprocess.Popen(['tmux', 'display-popup', '-E', '-c', tty,
                                   '-x', '0', '-y', '0', '-w', '100', '-h', '20', command], env=env)
-        wait_for(lambda: '点击进入'.encode() in output)
+        wait_for(lambda: '会话管理'.encode() in output)
         output.clear()
         os.write(master, b'/pane-target')
         wait_for(lambda: b'mouse-target' in output and b'[1/1]' in output)
