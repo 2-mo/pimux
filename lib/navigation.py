@@ -40,6 +40,7 @@ ITEMS = [
     Entry("copy-path", "workspace", "y", "Copy directory", "复制当前目录", place="menu"),
     Entry("split-horizontal", "workspace", "|", "Split left / right", "左右分屏", place="menu"),
     Entry("split-vertical", "workspace", "-", "Split top / bottom", "上下分屏", place="menu"),
+    Entry("layout", "workspace", "a", "Arrange panes", "调整分屏"),
     Entry("zoom", "workspace", "z", "Zoom / restore", "放大 / 恢复", place="menu"),
     Entry("close-pane", "workspace", "x", "Close pane (confirm)", "关闭分屏（确认）", place="menu"),
     Entry("detach", "workspace", "d", "Detach, keep tasks", "离开，保留任务", place="menu"),

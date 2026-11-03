@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # pimux-managed: standalone personal terminal workspace.
 set -euo pipefail
-PIMUX_VERSION=0.8.1
+PIMUX_VERSION=0.9.0
 PIMUX_COMMAND=()
 PIMUX_TARGET_SOCKET=''
 PIMUX_SHARED_SERVER=false
@@ -354,7 +354,7 @@ create_view() {
 }
 
 connect_session() (
-    local root=$1 window=${2:-} client=${3:-} view old='' previous='' old_view=''
+    local root=$1 window=${2:-} client=${3:-} pane=${4:-} view old='' previous='' old_view=''
     root=$(logical_session "$root")
     if [[ -n $client ]]; then
         old=$(client_session "$client")
@@ -362,6 +362,7 @@ connect_session() (
         old_view=$(tmux show-options -qv -t "$old" @pimux_view)
         if [[ $previous == "$root" && -n $old_view ]]; then
             [[ -z $window ]] || tmux select-window -t "$old:$window"
+            [[ -z $pane ]] || tmux select-pane -t "$old:$window.$pane"
             return
         fi
     fi
@@ -369,6 +370,7 @@ connect_session() (
     view=$(create_view "$root" "$previous")
     trap 'cleanup_view "$view"' EXIT
     tmux select-window -t "$view:$window"
+    [[ -z $pane ]] || tmux select-pane -t "$view:$window.$pane"
     if [[ -n $client ]]; then
         tmux switch-client -c "$client" -t "$view"
         if [[ -n $old_view ]]; then cleanup_view "$old"; fi
@@ -555,6 +557,12 @@ main() {
         load_gpu; python_view menu_ui "$@"
         return
     fi
+    if [[ ${1:-} == __layout ]]; then
+        [[ $# == 4 ]] || return 2
+        shift
+        load_gpu; python_view layout_ui "$@"
+        return
+    fi
     if [[ ${1:-} == __update ]]; then
         [[ $# == 1 ]] || return 2
         printf '\033[38;2;183;161;232mPiMux · %s\033[0m\n\n' "$(tr_ui '更新 PiMux')"
@@ -598,6 +606,12 @@ main() {
         else
             case $action in
                 menu) show_menu "$client" ;;
+                layout)
+                    sid=$(client_session "$client")
+                    local pane
+                    pane=$(tmux display-message -p -t "$sid:" '#{pane_id}')
+                    tmux display-popup -E -c "$client" -w 95% -h 90% \
+                        "$(shell_quote "$PIMUX_LAUNCHER") __layout $(shell_quote "${PIMUX_COMMAND[0]}") $(shell_quote "$PIMUX_TARGET_SOCKET") $(shell_quote "$pane")" ;;
                 new-window|rename-window|split-horizontal|split-vertical|zoom|detach)
                     sid=$(client_session "$client")
                     local pane path

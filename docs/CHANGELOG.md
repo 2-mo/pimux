@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.0
+
+- Search all panes by project, window, program or working directory and jump directly to a selected split. Keep window selection independent across clients.
+- Add Arrange panes to the home and action menus: equal columns/rows, tiling, swaps and continuous keyboard resizing, with explicit target panes and shared-layout feedback.
+- Edit the home search at the cursor with arrows, Home/End, Delete and Ctrl-U. Keep input in character mode between redraws and restore terminal settings when leaving.
+- Preserve selected panes when returning from tools, and close only the selected pane after confirmation when acting on pane results.
+
 ## 0.8.1
 
 - Make a window's number bold and inverted when a PiMux Bash foreground command exits unsuccessfully. Ctrl-C is treated as cancellation.

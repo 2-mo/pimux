@@ -20,7 +20,7 @@ On Debian/Ubuntu, missing tmux and terminal dependencies are installed automatic
 pimux
 ```
 
-- Press `n` to create a session; select one and press Enter to open it.
+- Press `n` to create a session; `/` searches projects, programs and paths, and Enter jumps to the selected pane.
 - Use the grouped menu for **GPU, IP, ports, proxy and settings**. `Tab` switches to it; `q` returns.
 - Inside a session: press and release `Ctrl-a`, then `h` for the menu or `d` to detach and keep tasks running.
 
