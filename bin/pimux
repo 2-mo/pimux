@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # pimux-managed: standalone personal terminal workspace.
 set -euo pipefail
-PIMUX_VERSION=0.10.0
+PIMUX_VERSION=0.10.1
 PIMUX_COMMAND=()
 PIMUX_TARGET_SOCKET=''
 PIMUX_SHARED_SERVER=false
@@ -297,6 +297,7 @@ install_shared_bindings() {
             /) action=help ;; g) action=gpu ;; r) action=reload ;; L) action=previous ;; y) action=copy-path ;;
             P) action=path ;; x) action=close-pane ;;
             v) action=split-horizontal ;; '|') action=split-horizontal-pipe ;; -) action=split-vertical ;;
+            '｜') action=split-horizontal-fullwidth-pipe ;;
             *) continue ;;
         esac
         option="@pimux_fallback_$action"

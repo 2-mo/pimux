@@ -22,7 +22,8 @@ def key_notes(binary, socket):
 def help_blocks(binary, socket):
     bindings = []
     for key, description in key_notes(binary, socket):
-        line = text(f"  {key:<9}", "color(215)")
+        line = text("  " + key, "color(215)")
+        line.pad_right(max(0, 11 - line.cell_len))
         line.append(description)
         bindings.append(line)
     return [
