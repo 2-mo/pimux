@@ -155,15 +155,29 @@ def render(entries, navigation, *, width, height, selected, count, query="", sea
             hints.insert(1, ("←→", tr("edit", "编辑")))
     else:
         hints = [("Tab", tr("menu", "菜单")), ("/", tr("search", "搜索")), ("Enter", tr("open", "进入"))]
-        if width >= 90:
-            hints.extend([("n", tr("new", "新建")), ("x", tr("close", "关闭"))])
         hints.append(("q", tr("back", "返回")))
+        if width >= 80:
+            hints = [("↑↓", tr("select", "选择")), ("←→", tr("expand", "展开")), *hints]
+        elif width >= 65:
+            hints.insert(0, ("↑↓", tr("select", "选择")))
+        else:
+            hints = [("Tab", tr("menu", "菜单")), ("/", tr("find", "搜索")),
+                     ("Enter", tr("open", "进入")), ("q", "")]
     focused = next((entry for entry in entries if entry.selected), None)
     message = text(error, "red") if error else text(
         " " + focused.path if focused and focused.path and main_width < 64 and not nav_focused else
         tr(" Click an item to open · arrows to expand · Tab to switch focus",
            " 点击进入 · 方向键展开 · Tab 切换区域"), MUTED)
     message.no_wrap, message.overflow = True, "ellipsis"
+    if not error and not nav_focused and not searching:
+        actions = [("n", tr("new session", "新建会话"))]
+        if focused:
+            target = (tr("pane", "分屏") if focused.pane else
+                      tr("window", "窗口") if focused.name else tr("session", "会话"))
+            actions.append(("x", tr(f"close {target} (confirm)", f"关闭{target}（确认）")))
+            if focused.name and width >= 80:
+                actions.append(("d", tr("preview", "预览")))
+        message = Group(message, key_hints(actions)) if focused and focused.path and main_width < 64 else key_hints(actions)
     return screen(Group(*body), key_hints(hints), width, height, message=message)
 
 

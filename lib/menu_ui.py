@@ -16,7 +16,7 @@ class Menu:
     def __init__(self, result, *, pinned=False):
         self.result = Path(result)
         self.nodes = entries("menu", pinned=pinned)
-        self.expanded = {"resources", "network", "settings"}
+        self.expanded = {"workspace"}
         self.selected = "workspace"
         self.offset = 0
         self.page_size = 1
