@@ -495,6 +495,7 @@ def test_shared_server_reload_and_short_command_preserve_other_sessions(server):
     tmux('set-option', '-t', 'seed', '@pimux_launcher', str(SOURCE / 'bin/pimux'))
     tmux('bind-key', '-r', 'g', 'set-option', '@original_gpu_key', 'used')
     tmux('bind-key', 'v', 'set-option', '@original_split_key', 'used')
+    tmux('bind-key', '｜', 'set-option', '@original_fullwidth_split_key', 'used')
     tmux('unbind-key', 'h')
     global_before = tmux('show-options', '-g')
     personal_before = tmux('show-options', '-t', 'personal')
@@ -537,20 +538,20 @@ def test_shared_server_reload_and_short_command_preserve_other_sessions(server):
         while b'personal' not in output and time.monotonic() < deadline:
             drain()
         assert b'personal' in output, output
-        os.write(master, b'\x02')
-        deadline = time.monotonic() + 5
-        while tmux('list-clients', '-F', '#{client_prefix}') != '1' and time.monotonic() < deadline:
-            drain()
-        assert tmux('list-clients', '-F', '#{client_prefix}') == '1'
-        os.write(master, b'v')
-        deadline = time.monotonic() + 5
-        while tmux('show-options', '-qv', '-t', 'personal', '@original_split_key') != 'used' and time.monotonic() < deadline:
-            drain()
-        assert tmux('show-options', '-qv', '-t', 'personal', '@original_split_key') == 'used', (
-            tmux('list-keys', '-T', 'prefix', 'v'),
-            tmux('show-options', '-gqv', '@pimux_fallback_split-horizontal'),
-            tmux('list-sessions', '-F', '#{session_name}:#{@original_split_key}:#{@pimux_launcher}'),
-        )
+        for key, option in ((b'v', '@original_split_key'), ('｜'.encode(), '@original_fullwidth_split_key')):
+            os.write(master, b'\x02')
+            deadline = time.monotonic() + 5
+            while tmux('list-clients', '-F', '#{client_prefix}') != '1' and time.monotonic() < deadline:
+                drain()
+            assert tmux('list-clients', '-F', '#{client_prefix}') == '1'
+            os.write(master, key)
+            deadline = time.monotonic() + 5
+            while tmux('show-options', '-qv', '-t', 'personal', option) != 'used' and time.monotonic() < deadline:
+                drain()
+            assert tmux('show-options', '-qv', '-t', 'personal', option) == 'used', (
+                tmux('list-keys', '-T', 'prefix', key.decode()),
+                tmux('list-sessions', '-F', '#{session_name}:#{@pimux_launcher}'),
+            )
         os.write(master, b'\x02')
         deadline = time.monotonic() + 5
         while tmux('list-clients', '-F', '#{client_prefix}') != '1' and time.monotonic() < deadline:
@@ -575,7 +576,8 @@ def test_shared_server_reload_and_short_command_preserve_other_sessions(server):
         os.close(slave)
 
 
-def test_nested_splits_work_with_letter_pipe_and_menu_shortcuts(server):
+@pytest.mark.parametrize('pipe_key', ['|', '｜'], ids=['ascii', 'fullwidth'])
+def test_nested_splits_work_with_letter_pipe_and_menu_shortcuts(server, pipe_key):
     env, tmux = server
     tmux('set-environment', '-g', 'PIMUX_RUNTIME_FILE', env['PIMUX_RUNTIME_FILE'])
     tmux('set-environment', '-g', 'PIMUX_LANGUAGE_FILE', env['PIMUX_LANGUAGE_FILE'])
@@ -614,12 +616,12 @@ def test_nested_splits_work_with_letter_pipe_and_menu_shortcuts(server):
         assert sum(row[0] for row in nested) + 1 == parent_width
         os.write(master, b'\x01-')
         wait_for(lambda: len(panes()) == 4)
-        os.write(master, b'\x01|')
+        os.write(master, b'\x01' + pipe_key.encode())
         wait_for(lambda: len(panes()) == 5)
         output.clear()
         os.write(master, b'\x01h')
         wait_for(lambda: '工作终端'.encode() in output)
-        os.write(master, b'v')
+        os.write(master, pipe_key.encode())
         wait_for(lambda: len(panes()) == 6)
         assert before <= set(tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid}').splitlines())
     finally:

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.10.1
+
+- Accept both ASCII `|` and fullwidth `｜` for left/right splits after Ctrl-a and inside the action menu; keep `v` as the primary shortcut.
+- Preserve each alias's original behavior outside PiMux on shared servers, and align fullwidth keys in keyboard help.
+
 ## 0.10.0
 
 - Add `pimux tmux COMMAND ...` for background terminal management without an interactive terminal. Preserve native arguments, output and exit status.
