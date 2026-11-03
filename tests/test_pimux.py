@@ -448,6 +448,7 @@ def test_shared_server_reload_and_short_command_preserve_other_sessions(server):
     tmux('new-session', '-d', '-s', 'personal')
     tmux('set-option', '-t', 'seed', '@pimux_launcher', str(SOURCE / 'bin/pimux'))
     tmux('bind-key', '-r', 'g', 'set-option', '@original_gpu_key', 'used')
+    tmux('bind-key', 'v', 'set-option', '@original_split_key', 'used')
     tmux('unbind-key', 'h')
     global_before = tmux('show-options', '-g')
     personal_before = tmux('show-options', '-t', 'personal')
@@ -495,6 +496,20 @@ def test_shared_server_reload_and_short_command_preserve_other_sessions(server):
         while tmux('list-clients', '-F', '#{client_prefix}') != '1' and time.monotonic() < deadline:
             drain()
         assert tmux('list-clients', '-F', '#{client_prefix}') == '1'
+        os.write(master, b'v')
+        deadline = time.monotonic() + 5
+        while tmux('show-options', '-qv', '-t', 'personal', '@original_split_key') != 'used' and time.monotonic() < deadline:
+            drain()
+        assert tmux('show-options', '-qv', '-t', 'personal', '@original_split_key') == 'used', (
+            tmux('list-keys', '-T', 'prefix', 'v'),
+            tmux('show-options', '-gqv', '@pimux_fallback_split-horizontal'),
+            tmux('list-sessions', '-F', '#{session_name}:#{@original_split_key}:#{@pimux_launcher}'),
+        )
+        os.write(master, b'\x02')
+        deadline = time.monotonic() + 5
+        while tmux('list-clients', '-F', '#{client_prefix}') != '1' and time.monotonic() < deadline:
+            drain()
+        assert tmux('list-clients', '-F', '#{client_prefix}') == '1'
         os.write(master, b'g')
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline:
@@ -510,6 +525,62 @@ def test_shared_server_reload_and_short_command_preserve_other_sessions(server):
     finally:
         client.terminate()
         client.wait(timeout=5)
+        os.close(master)
+        os.close(slave)
+
+
+def test_nested_splits_work_with_letter_pipe_and_menu_shortcuts(server):
+    env, tmux = server
+    tmux('set-environment', '-g', 'PIMUX_RUNTIME_FILE', env['PIMUX_RUNTIME_FILE'])
+    tmux('set-environment', '-g', 'PIMUX_LANGUAGE_FILE', env['PIMUX_LANGUAGE_FILE'])
+    before = set(tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid}').splitlines())
+    master, slave = os.openpty()
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 36, 120, 0, 0))
+    client = subprocess.Popen([str(SOURCE / 'bin/pimux'), '-n', 'seed'], env=env,
+                              stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
+    output = bytearray()
+
+    def wait_for(condition):
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            if condition():
+                return
+            if select.select([master], [], [], .04)[0]:
+                output.extend(os.read(master, 65536))
+        pytest.fail(output.decode(errors='replace')[-1500:])
+
+    def panes():
+        return tmux('list-panes', '-t', 'seed', '-F', '#{pane_id}').splitlines()
+
+    try:
+        wait_for(lambda: '离开'.encode() in output)
+        os.write(master, b'\x01-')
+        wait_for(lambda: len(panes()) == 2)
+        parent = tmux('list-clients', '-F', '#{pane_id}')
+        parent_width, parent_height, parent_top = map(int, tmux(
+            'display-message', '-p', '-t', parent, '#{pane_width} #{pane_height} #{pane_top}').split())
+        os.write(master, b'\x01v')
+        wait_for(lambda: len(panes()) == 3)
+        pieces = [list(map(int, row.split())) for row in tmux(
+            'list-panes', '-t', 'seed', '-F', '#{pane_width} #{pane_height} #{pane_top}').splitlines()]
+        nested = [row for row in pieces if row[2] == parent_top]
+        assert len(nested) == 2 and all(row[1] == parent_height for row in nested)
+        assert sum(row[0] for row in nested) + 1 == parent_width
+        os.write(master, b'\x01-')
+        wait_for(lambda: len(panes()) == 4)
+        os.write(master, b'\x01|')
+        wait_for(lambda: len(panes()) == 5)
+        output.clear()
+        os.write(master, b'\x01h')
+        wait_for(lambda: '工作终端'.encode() in output)
+        os.write(master, b'v')
+        wait_for(lambda: len(panes()) == 6)
+        assert before <= set(tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid}').splitlines())
+    finally:
+        subprocess.run(['tmux', 'detach-client', '-t', os.ttyname(slave)], env=env, capture_output=True)
+        if client.poll() is None:
+            client.terminate()
+            client.wait(timeout=5)
         os.close(master)
         os.close(slave)
 

@@ -58,7 +58,7 @@ Press `Ctrl-a`, release it, then press the action key. A bright orange badge sho
 | `1`–`9` / `0` | Select a numbered window |
 | `p` / `n` / `l` | Previous / next / last window |
 | `L` | Previous session |
-| `\|` / `-` | Split left/right / top/bottom |
+| `v` / `-` | Split left/right / top/bottom |
 | Arrow keys | Select a pane |
 | `z` | Zoom or restore the pane |
 | `x` | Close the selected pane and its programs, after confirmation |
@@ -66,6 +66,8 @@ Press `Ctrl-a`, release it, then press the action key. A bright orange badge sho
 | `P` / `y` | Full directory path / copy current path |
 | `/` | Keyboard help |
 | `r` / `d` | Reload / detach and leave tasks running |
+
+You can split any selected pane again. For a top pane above two lower panes, press `Ctrl-a`, then `-`; select the lower pane, then press `Ctrl-a`, then `v`. Press and release the prefix for every split. The pipe character `|` still splits left/right; it is different from a backslash `\`.
 
 In the manager, `n` creates a session with the current directory name prefilled: Enter accepts, or edit the name or clear it to cancel. `x` closes the selected item after confirmation, and `q` returns. The GPU popup refreshes every second. Click a card or use the arrows to select a GPU; the wheel moves between rows, and Page Up/Down changes pages. Press `d` for memory capacity, temperature, power and compute processes. Expanded details retain full process paths and show launch commands and working directories when visible to your Linux user. Long lines wrap, and the wheel or Page Up/Down scrolls through all details; arrows still select GPUs. Press `r` to refresh or `q` / Esc to return. Both popups belong to the current client and do not replace another terminal's application pane.
 

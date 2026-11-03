@@ -38,7 +38,7 @@ ITEMS = [
     Entry("pin", "workspace", "p", "Pin / unpin", "置顶 / 取消置顶"),
     Entry("path", "workspace", "P", "Full directory path", "完整目录路径", place="menu"),
     Entry("copy-path", "workspace", "y", "Copy directory", "复制当前目录", place="menu"),
-    Entry("split-horizontal", "workspace", "|", "Split left / right", "左右分屏", place="menu"),
+    Entry("split-horizontal", "workspace", "v", "Split left / right", "左右分屏", place="menu"),
     Entry("split-vertical", "workspace", "-", "Split top / bottom", "上下分屏", place="menu"),
     Entry("layout", "workspace", "a", "Arrange panes", "调整分屏"),
     Entry("zoom", "workspace", "z", "Zoom / restore", "放大 / 恢复", place="menu"),
