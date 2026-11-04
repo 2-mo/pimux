@@ -2081,7 +2081,48 @@ def test_window_preview_handles_real_multiline_cwd(tmp_path, server, preview_ter
     tmux('set-option', '-p', '-t', pane, '@pimux_command_status', '7')
     if exited:
         tmux('send-keys', '-t', pane, 'Enter')
-        wait_for(lambda: tmux('display-message', '-p', '-t', pane, '#{pane_dead}:#{pane_dead_status}') == '1:7')
+        try:
+            wait_for(lambda: tmux('display-message', '-p', '-t', pane, '#{pane_dead}:#{pane_dead_status}') == '1:7')
+        except pytest.fail.Exception as failure:
+            # Inspect only after the original deadline; never signal or retry the pane.
+            diagnostics = [str(failure)]
+            fields = ('pane_dead', 'pane_dead_status', 'pane_dead_signal',
+                      'pane_pid', 'pid', 'pane_current_command', 'pane_input_off')
+            snapshot = ''
+            for label, args in (
+                ('pane state', ('display-message', '-p', '-t', pane,
+                                '\n'.join(name + '=#{' + name + '}' for name in fields))),
+                ('capture-pane', ('capture-pane', '-p', '-t', pane)),
+            ):
+                try:
+                    result = subprocess.run(['tmux', *args], env=env, capture_output=True,
+                                            text=True, timeout=3)
+                    diagnostics.append(f'{label} (returncode={result.returncode}):\n'
+                                       f'{result.stdout}\nstderr: {result.stderr}')
+                    if label == 'pane state' and result.returncode == 0:
+                        snapshot = result.stdout
+                except (OSError, subprocess.SubprocessError) as error:
+                    diagnostics.append(f'{label}: {error!r}')
+            pid = next((line.removeprefix('pane_pid=') for line in snapshot.splitlines()
+                        if line.startswith('pane_pid=')), '')
+            if pid.isascii() and pid.isdigit():
+                for name in ('status', 'stat', 'wchan'):
+                    path = Path('/proc') / pid / name
+                    try:
+                        content = path.read_text()
+                        diagnostics.append(f'{path}:\n{content}')
+                        if name == 'stat':
+                            # Linux stat fields follow the final ')' of the command name.
+                            values = content.rsplit(')', 1)[-1].split()
+                            if len(values) >= 50:
+                                diagnostics.append('proc stat parsed: '
+                                                   f'state={values[0]} ppid={values[1]} '
+                                                   f'exit_code={values[49]}')
+                    except OSError as error:
+                        diagnostics.append(f'{path}: {error!r}')
+            else:
+                diagnostics.append('No valid pane PID available for /proc diagnostics')
+            pytest.fail('\n'.join(diagnostics), pytrace=False)
     native_cwd = native_pane_field(env, pane, 'pane_current_path')
     before = tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid} #{pane_dead}')
     blocks = window_details.window_blocks(shutil.which('tmux'), tmux('display-message', '-p', '#{socket_path}'), window)
