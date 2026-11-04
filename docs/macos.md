@@ -1,10 +1,31 @@
-# macOS major-version track
+# macOS beta
 
-The Mac direction is one Mac managing several servers: host identity, connection state, terminal sessions and host resources. This is server management, not experiment management. This track is separate from Linux 0.10.x fixes. This local development branch adds [explicit read-only multi-server snapshots](hosts.md) to the native local terminal: host-aware aggregation is separate from ordinary SSH shells. There is no Mac release archive, version bump or published installer.
+PiMux **1.0.0-beta.1** is the Mac prerelease, separate from Linux **v0.11.0**, which remains stable/latest. It provides a native local terminal, local inspectors and experimental [read-only multi-server CLI snapshots](hosts.md). A unified multi-server TUI and remote session actions are deferred.
 
-## Native local source preview
+## Install with Homebrew
 
-Mac source-preview prerequisites: Bash >=5.1, tmux >=3.2, Python >=3.10, curl, system OpenSSH/ssh-keygen, infocmp and `tmux-256color` terminfo. Provide these before installation; the Mac source installer does not install global packages. It reuses an existing uv executable or downloads uv into the user-local runtime, then installs locked Python dependencies there over HTTPS. uv is not a mandatory preinstalled command for end users. Apple Bash 3.2 can read the bootstrap and select modern Bash before loading application libraries. The Mac floor includes `PROMPT_COMMAND` array execution. Those hooks already existed before this change; they are not a reason to raise Linux's launcher minimum. Linux retains its existing Bash >=4.2 guard, and its complete interaction gate continues to use Ubuntu 24.04's Bash 5.2. This milestone does not newly certify every legacy Bash prompt behavior.
+The beta targets **Apple silicon, macOS 15 or newer**. Intel Macs are not validated. Install Homebrew first, then:
+
+```sh
+brew tap 2-mo/pimux https://github.com/2-mo/pimux
+brew trust --formula 2-mo/pimux/pimux-preview
+brew install 2-mo/pimux/pimux-preview
+pimux
+```
+
+Homebrew installs Bash, tmux, ncurses and Python 3.14 plus a private locked Python environment. This is a third-party formula, not a signed/notarized Mac app or a homebrew/core formula.
+
+```sh
+brew update
+brew upgrade 2-mo/pimux/pimux-preview
+brew uninstall 2-mo/pimux/pimux-preview
+```
+
+`pimux update` and `pimux uninstall` direct Homebrew installations to these package-manager commands. Upgrades do not replace a running tmux server; dependency upgrades may require session migration. Uninstalling retains sessions, settings, key preferences, receipts and server authorizations, but PiMux UI/helpers are unavailable until reinstalled. See [packaging details](../packaging/homebrew/README.md).
+
+## Optional source installation
+
+Mac source-install prerequisites: Bash >=5.1, tmux >=3.2, Python >=3.10, curl, system OpenSSH/ssh-keygen, infocmp and `tmux-256color` terminfo. Provide these before installation; the Mac source installer does not install global packages. It reuses an existing uv executable or downloads uv into the user-local runtime, then installs locked Python dependencies there over HTTPS. uv is not a mandatory preinstalled command for end users. Apple Bash 3.2 can read the bootstrap and select modern Bash before loading application libraries. The Mac floor includes `PROMPT_COMMAND` array execution. Those hooks already existed before this change; they are not a reason to raise Linux's launcher minimum. Linux retains its existing Bash >=4.2 guard, and its complete interaction gate continues to use Ubuntu 24.04's Bash 5.2. This milestone does not newly certify every legacy Bash prompt behavior.
 
 The pinned Bash 4.2.53 container passes the new Linux bootstrap and is rejected by the Mac version policy. A separate full-launch probe fails while parsing a translated associative-array key in `lib/ui.bash`; the exact unchanged PR #3 file reproduces that failure. The CI legacy check therefore covers only the new runtime guard, not a claim that the complete application works on Bash 4.2. Use the standard Bash 5.2 Linux environment for the verified interaction behavior.
 
@@ -31,7 +52,7 @@ pimux --version
 pimux -h
 ```
 
-The optional build above provides the two executable paths instead. A completely clean Mac still needs Python and either preexisting Bash/tmux or Xcode command-line tools to build them. This is a source installation, not a dependency-complete Mac app. The public `main` download command is the Linux release path; do not assume it contains this local track. `uv sync --locked` is an optional developer-environment step, not an installed-user requirement.
+The optional build above provides the two executable paths instead. A completely clean Mac still needs Python and either preexisting Bash/tmux or Xcode command-line tools to build them. This is a source installation, not a dependency-complete Mac app. The public `install.sh` download command remains the Linux release path; use Homebrew for the Mac beta. `uv sync --locked` is an optional developer-environment step, not an installed-user requirement.
 
 For an isolated **local terminal** trial, use a disposable shell, fresh HOME and short socket directory:
 
@@ -42,13 +63,13 @@ bash scripts/setup-tmux.sh
 "$HOME/.local/bin/pimux" -n local
 ```
 
-The source installer checks dependencies before writing assets. The Linux download entry point `install.sh` continues to reject macOS before downloads or writes. Mac `pimux update` explains the source-preview boundary without fetching a Linux installer; reinstall from the chosen checkout. Existing Starship is optional on Mac and is not downloaded automatically.
+The source installer checks dependencies before writing assets. The Linux download entry point `install.sh` continues to reject macOS before downloads or writes. For a source installation, Mac `pimux update` does not fetch a Linux installer; reinstall from the chosen checkout. Homebrew installations use `brew upgrade` instead. Existing Starship is optional on Mac and is not downloaded automatically.
 
 Python packages live in `~/.local/share/pimux/venv`. A literal Bash pin is saved in `~/.config/pimux/shell.conf`; a tmux selection is created only when no existing runtime configuration exists. `PIMUX_BASH` explicitly overrides Bash selection. Malformed configuration, unavailable executables and old Bash fail clearly. Logical sessions, client views, helpers and subsequent panes use the selected runtime, including when a login shell or tmux client resets PATH. Existing user settings are preserved.
 
 Installation backs up changed files and appends only the command PATH line to supported shell startup files. A fresh trial HOME will not discover the normal user's SSH/VS Code settings. Unrelated launcher/assets and existing configuration symlinks are refused. Reinstallation preserves saved proxy/environment/runtime settings and live panes. Uninstallation removes only the managed launcher. It retains configuration, the private Python runtime, shell PATH entries, local identity/operation records, key files and sessions. It does not revoke server authorizations.
 
-## What is usable after source installation
+## What is usable in the beta
 
 | Entry | Actual scope |
 | --- | --- |
@@ -77,9 +98,7 @@ Ports include only processes visible to the current user; empty selection differ
 
 Missing NVIDIA tools produce explicit unavailable telemetry, not a claim that the Mac has no GPU. Apple GPU metrics are unimplemented. Proxy saving and shell reports use the selected runtime. Legacy foreground-environment inference still requires Linux `/proc`; Mac reports unknown rather than inspecting credentials or restarting processes.
 
-`pimux tmux` execs the configured command array, preserving native arguments, streams and cancellation. This common fix also exists in Linux draft PR #1; this independent branch does not modify that PR.
-
-The process-directory adapter in `window_details.py` still inherits the base branch's preference for the parent pane process over a foreground program's directory. Linux draft PR #2 fixes that precedence and multiline metadata separately. When combining the branches, retain #2's tmux foreground-directory preference and use this native adapter only as its missing-directory fallback; do not replace the #2 fix. This preview does not claim that foreground-directory issue is resolved.
+`pimux tmux` execs the configured command array, preserving native arguments, streams and cancellation.
 
 ## Verification and limits
 
@@ -95,25 +114,14 @@ The native CI job is configured to build the pinned toolchain and run the local 
 
 Darwin PTY buffers are small: tests drain output during shutdown, stop on EOF and verify restored flags through the surviving master descriptor. Targeting/process-preservation assertions remain strict. Cancellation is compared after a response from the initialized native tmux client, avoiding signals raced against startup.
 
-Client views independently select **windows**, sharing programs. Panes within the same shared tmux window retain native shared active-pane semantics; this preview does not claim independent same-window focus or program copies. There is no packaged Mac release, Intel Mac validation or Apple GPU collector. The local multi-server branch adds host/SSH/snapshot inspection and a separately confirmed public-key enrollment wizard. Remote session actions remain unimplemented. A CI result is usable only when its head/source matches the delivered commit; older green runs do not certify later commits. These local slices do not have current remote CI or release certification. Native evidence is from Apple silicon macOS 26.7.1, Bash 5.3.20, tmux 3.8, Python 3.11.14 and OpenSSH 10.3p1. The configured macos-14 job does not establish a tested minimum macOS version, and Intel Mac remains unverified.
+Client views independently select **windows**, sharing programs. Panes within the same shared tmux window retain native shared active-pane semantics; the beta does not claim independent same-window focus or program copies. Intel Mac validation and Apple GPU collection remain absent. Remote session actions remain unimplemented.
 
-## Integration dependencies
-
-This local track starts from the exact terminal commit `ffe660b437dacf9c5d60a4c01087e77d92ac744e`; it does not certify whatever head a remote PR currently advertises.
-
-| Track | Integration boundary |
-| --- | --- |
-| [PR #3](https://github.com/2-mo/pimux/pull/3) | macOS inspector/platform foundation inherited by the terminal track. |
-| [PR #4](https://github.com/2-mo/pimux/pull/4) | Native terminal/runtime/source-installation layer, stacked on #3; this branch contains the local `ffe660b` base. |
-| [PR #1](https://github.com/2-mo/pimux/pull/1) | Parallel Linux/client fixes. Native passthrough exec/cancellation overlaps the Mac implementation; reconcile it instead of applying it twice. |
-| [PR #2](https://github.com/2-mo/pimux/pull/2) | Foreground-directory precedence and multiline metadata fixes are not integrated here. Preserve that precedence and use the native directory adapter as fallback when combining. |
-
-The local host/snapshot, confirmed enrollment, selected-identity and SSH safety slices are later commits on this stack. They are not merged, released or automatically present in #4/main. Final integration needs tests on the combined exact commit, including the Linux fixes. The displayed version is still `0.10.1`; it is not a published Mac major-version number.
+The release source `48672332c158b027bdf91090e40a4533cfbbca8d` passed Linux core checks (416 passed, 5 skipped), SSH checks (56 passed), and native Mac checks (358 passed, 2 skipped), plus the full Homebrew install/test/upgrade/uninstall lifecycle. This evidence applies to that exact source; older green runs do not certify later application changes. The Homebrew target is Apple silicon macOS 15+, not a claim of Intel support.
 
 ## Remaining major-version work
 
 The first bounded multi-server milestone is implemented and locally verified with two isolated SSH endpoints: passive configuration discovery, host-aware snapshots, failure isolation and a separately confirmed public-key wizard. Actual user servers and a real tailnet were not used. Distinguish ordinary OpenSSH over an existing tailnet from Tailscale SSH policy authentication; copying a key is not a general solution to policy-managed access.
 
-Remaining work is a unified host interface and deliberately scoped remote attachment/actions, followed by integration and release readiness. Actions must carry `(host_id, server/socket, session/window/pane_id)` and preserve work on reconnect/failure. A Mac package/distribution format, supported macOS/CPU matrix, major version, installation/upgrade/recovery policy and current matching Linux/Mac/SSH CI still need to be finalized and verified. There is no Mac automatic updater, signed/notarized app or Intel validation. `scripts/package.sh` builds only a Linux archive with GNU tools; it is not a Mac packaging command.
+Remaining work is a unified host interface and deliberately scoped remote attachment/actions. Actions must carry `(host_id, server/socket, session/window/pane_id)` and preserve work on reconnect/failure. Homebrew manages package installation, upgrades and removal. There is no separate Mac automatic updater, signed/notarized app or Intel validation. `scripts/package.sh` builds only a Linux archive with GNU tools; it is not a Mac packaging command.
 
-Real-server/tailnet testing and any new persistent credential grant require the appropriate explicit target authorization. Publishing branches/PRs, merging or releasing are separate from this local preview; no publication is implied by these instructions.
+Real-server/tailnet testing and any new persistent credential grant require the appropriate explicit target authorization. The beta does not authorize connecting to user servers or granting credentials automatically.

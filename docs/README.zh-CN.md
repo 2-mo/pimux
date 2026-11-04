@@ -14,7 +14,18 @@ curl -fsSL https://raw.githubusercontent.com/2-mo/pimux/main/install.sh | bash &
 
 Debian/Ubuntu 会自动补齐 tmux 等终端依赖。
 
-独立的 [Mac 大版本源码预览](macos.md) 已有本机终端、[多服务器 CLI 单次快照](hosts.md)和明确确认的公钥授权向导，可读取 VS Code/OpenSSH 别名。尚无统一远端服务器 TUI、远端会话进入/管理或 Mac 发布安装包。此预览需使用经过审查的源码工作区，上面的 Linux 下载命令不提供这些 Mac 功能。
+## 安装 · macOS 测试版
+
+PiMux **1.0.0-beta.1** 是面向 Apple silicon、macOS 15 及以上的预发布版本。Linux **v0.11.0** 仍是稳定版 / latest；上面的 Linux 安装命令不安装 Mac 测试版。
+
+```sh
+brew tap 2-mo/pimux https://github.com/2-mo/pimux
+brew trust --formula 2-mo/pimux/pimux-preview
+brew install 2-mo/pimux/pimux-preview
+pimux
+```
+
+[Mac 测试版](macos.md) 提供本机终端和本机检查工具，以及实验性的[多服务器 CLI 单次快照](hosts.md)，可读取 VS Code/OpenSSH 别名。公钥授权需明确确认。统一多服务器 TUI 和远端会话进入/管理尚未实现；Intel Mac 尚未验证。
 
 ## 使用
 
@@ -27,13 +38,15 @@ pimux
 - 进入会话后，先按并松开 `Ctrl-a`，再按 `-` 上下分屏、`v` 左右分屏、`h` 打开菜单、`d` 离开并保留任务。
 - 让 agent 通过 `pimux tmux` 自行组织实验窗口：[后台管理说明](agents.zh-CN.md)。
 
-## 更新 · Linux
+## 更新
 
-Mac 源码预览需按 [Mac 指南](macos.md)从选定工作区重新安装；`pimux update` 不会下载 Mac 发布包。
+Linux：
 
 ```bash
 pimux update
 ```
+
+Mac 测试版使用 `brew update && brew upgrade 2-mo/pimux/pimux-preview` 更新，使用 `brew uninstall 2-mo/pimux/pimux-preview` 卸载。运行时和会话注意事项见 [Mac 指南](macos.md)。
 
 ## 看看怎么用
 

@@ -14,7 +14,18 @@ curl -fsSL https://raw.githubusercontent.com/2-mo/pimux/main/install.sh | bash &
 
 On Debian/Ubuntu, missing tmux and terminal dependencies are installed automatically.
 
-The separate [macOS major-version track](docs/macos.md) provides a native local terminal, one-shot [multi-server CLI snapshots](docs/hosts.md), and explicitly confirmed public-key setup. It reuses discovered VS Code/OpenSSH aliases. There is no unified remote-server TUI, remote session attachment/management, or published Mac installer. Use a reviewed source checkout for this preview; the Linux download command above does not install it.
+## Install · macOS beta
+
+PiMux **1.0.0-beta.1** is a prerelease for Apple silicon on macOS 15 or newer. Linux **v0.11.0** remains the stable/latest release; the Linux installer above does not install the Mac beta.
+
+```sh
+brew tap 2-mo/pimux https://github.com/2-mo/pimux
+brew trust --formula 2-mo/pimux/pimux-preview
+brew install 2-mo/pimux/pimux-preview
+pimux
+```
+
+The [Mac beta](docs/macos.md) provides a native local terminal and local inspectors, plus experimental [multi-server CLI snapshots](docs/hosts.md) using discovered VS Code/OpenSSH aliases. Public-key setup requires explicit confirmation. A unified multi-server TUI and remote session attachment/management are deferred. Intel Macs are not validated.
 
 ## Use
 
@@ -27,13 +38,15 @@ pimux
 - Inside a session: press and release `Ctrl-a`, then `-` / `v` to split top/bottom or left/right, `h` for the menu, or `d` to detach and keep tasks running.
 - Let your agent organize experiment terminals with `pimux tmux`: [background management](docs/agents.md).
 
-## Update · Linux
+## Update
 
-For the Mac source preview, reinstall from the chosen checkout as described in [the Mac guide](docs/macos.md); `pimux update` does not download a Mac release.
+Linux:
 
 ```bash
 pimux update
 ```
+
+For the Mac beta, use `brew update && brew upgrade 2-mo/pimux/pimux-preview`; uninstall with `brew uninstall 2-mo/pimux/pimux-preview`. See the [Mac guide](docs/macos.md) for runtime and session caveats.
 
 ## See it in action
 

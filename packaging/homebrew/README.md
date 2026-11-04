@@ -1,9 +1,17 @@
-# Local Homebrew source preview
+# Homebrew Mac beta
 
-This directory is an unpublished packaging track. There is no public tap, release
-URL or bottle. A formula generated with `render.py` uses an existing local source
-archive and its SHA-256; it never invents a public version URL. Rendering requires
-Python 3.11+ (the product's source-install minimum remains Python 3.10).
+PiMux **1.0.0-beta.1** is a prerelease for **Apple silicon, macOS 15+**. Intel is not validated. Linux **v0.11.0** remains stable/latest.
+
+```sh
+brew tap 2-mo/pimux https://github.com/2-mo/pimux
+brew trust --formula 2-mo/pimux/pimux-preview
+brew install 2-mo/pimux/pimux-preview
+pimux
+```
+
+Update with `brew update && brew upgrade 2-mo/pimux/pimux-preview`; remove with `brew uninstall 2-mo/pimux/pimux-preview`. The beta includes the local terminal and inspectors, plus experimental host CLI snapshots. The full multi-server TUI and remote session actions are deferred.
+
+For developer lifecycle tests, `render.py` can generate a formula from an existing local source archive and its SHA-256. Rendering requires Python 3.11+ (the product's source-install minimum remains Python 3.10).
 
 The formula installs application files and a private Python environment beneath
 its own Cellar entry. It does not run `scripts/setup-tmux.sh`, copy files into HOME,
@@ -64,5 +72,4 @@ prefix may require building dependencies because official bottles are not always
 relocatable. Formula audit results and actual lifecycle evidence must be recorded;
 the presence of a formula is not proof of installation support.
 
-Publishing requires an authorized immutable source URL/checksum, tap location,
-matching CI and supported CPU/macOS matrix. The candidate package version is 1.0.0-beta.1; package revisions used for lifecycle tests do not publish a release.
+The beta release source `48672332c158b027bdf91090e40a4533cfbbca8d` passed Linux core checks (416 passed, 5 skipped), SSH checks (56 passed), native Mac checks (358 passed, 2 skipped), and the full Homebrew install/test/upgrade/uninstall lifecycle. Package revisions used for lifecycle tests are not separate public releases.
