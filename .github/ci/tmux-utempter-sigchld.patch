@@ -1,0 +1,27 @@
+Description: Send SIGCHLD after utempter_remove_record as well
+ libutempter may consume a child's SIGCHLD. Schedule another reap so tmux
+ records the real pane exit status instead of leaving an unreaped child.
+Origin: upstream, https://github.com/tmux/tmux/commit/fa5f3cef3d651b0eb9abfa77fc37ccade81679b5
+Bug: https://github.com/tmux/tmux/issues/4559
+Forwarded: not-needed
+Comment: CI-only backport; upstream code changes are unchanged.
+--- a/server-fn.c
++++ b/server-fn.c
+@@ -318,6 +318,7 @@ server_destroy_pane(struct window_pane *wp, int notify)
+ 	if (wp->fd != -1) {
+ #ifdef HAVE_UTEMPTER
+ 		utempter_remove_record(wp->fd);
++		kill(getpid(), SIGCHLD);
+ #endif
+ 		bufferevent_free(wp->event);
+ 		wp->event = NULL;
+--- a/window.c
++++ b/window.c
+@@ -982,6 +982,7 @@ window_pane_destroy(struct window_pane *wp)
+ 	if (wp->fd != -1) {
+ #ifdef HAVE_UTEMPTER
+ 		utempter_remove_record(wp->fd);
++		kill(getpid(), SIGCHLD);
+ #endif
+ 		bufferevent_free(wp->event);
+ 		close(wp->fd);

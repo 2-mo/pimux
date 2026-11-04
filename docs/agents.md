@@ -4,7 +4,7 @@
 
 Codex, Claude, DeepSeek or any other agent that can run shell commands can use `pimux tmux COMMAND ...` to manage experiment terminals. The agent chooses sessions, window names, layouts, commands, reuse and cleanup. PiMux runs the native tmux commands on the selected workspace server; the same terminals are visible in the PiMux interface.
 
-No interactive terminal or model-specific setup is required. Arguments, standard output, standard error and the native command's exit status are preserved. `-F` controls the output format; `pimux tmux list-commands` lists available commands.
+No interactive terminal or model-specific setup is required. Arguments, standard input/output/error and the native command's exit status are preserved. The launcher hands control directly to the native tmux client, so cancellation signals reach that client rather than leaving it waiting behind a wrapper. `-F` controls the output format; `pimux tmux list-commands` lists available commands.
 
 ## Find or create a workspace
 
@@ -20,6 +20,20 @@ pimux tmux list-windows -t "$session_id" -F '#{window_id} #{window_name} #{windo
 ```
 
 Names and organization below are examples. Use returned session (`$…`), window (`@…`) and pane (`%…`) IDs for later actions; quote them as shell arguments. `-d` creates a terminal without changing the user's active window or pane.
+
+## Read panes without taking over
+
+Use native formats for a machine-readable inventory and capture a specific pane without attaching, switching focus, entering copy mode or injecting keys:
+
+```bash
+pimux tmux list-panes -a \
+    -F '#{session_id} #{window_id} #{pane_id} active=#{pane_active} dead=#{pane_dead}'
+pimux tmux capture-pane -p -J -t "$pane_id" -S -100
+```
+
+The inventory above uses IDs and numeric flags. `active` is tmux's selection state, not ownership or command completion. Names, commands and paths are free text; if adding them with `-F`, choose a format your parser handles without splitting on arbitrary whitespace. Independent PiMux views can link the same window, so an all-session listing may repeat pane IDs. Keep the session/window associations, but deduplicate by pane ID before acting once per underlying pane.
+
+`-J` joins wrapped lines. A capture is a snapshot of the pane and available scrollback, not a durable log or proof that its command finished. Use the program's exit state and its own outputs when checking completion. Cancelling a reading/waiting tmux client does not cancel a program running inside a pane.
 
 ## Start, inspect and organize experiments
 

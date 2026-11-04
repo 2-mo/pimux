@@ -2,6 +2,7 @@
 
 import os
 import fcntl
+import re
 import select
 import shutil
 import signal
@@ -31,7 +32,7 @@ def test_installer_checks_external_tmux_before_installing_dependencies(tmp_path,
     for name in ("dirname", "readlink"):
         (tools / name).symlink_to(shutil.which(name))
     present = tools / "present"
-    present.write_text("#!/bin/sh\nexit 0\n")
+    present.write_text("#!/bin/sh\nprintf 'tmux 3.4\\n'\n")
     present.chmod(0o755)
     dependencies = ["infocmp", "flock", "timeout", "curl", "ss", "ip"]
     if tmux_present:
@@ -51,14 +52,11 @@ def test_installer_checks_external_tmux_before_installing_dependencies(tmp_path,
          "test", str(SOURCE / "scripts/setup-tmux.sh")],
         env=env, text=True, capture_output=True,
     )
-    assert result.returncode == 0, result.stdout + result.stderr
+    assert (result.returncode == 0) == tmux_present, result.stdout + result.stderr
     if tmux_present:
         assert not log.exists()
     else:
-        update, install = log.read_text().splitlines()
-        assert update == "update"
-        assert install.split()[:2] == ["install", "-y"]
-        assert "tmux" in install.split()[2:]
+        assert not log.exists()  # Missing dependencies never imply consent.
 
 
 def test_install_exposes_short_command_and_preserves_user_settings(tmp_path):
@@ -257,6 +255,114 @@ def test_installed_config_loads_and_reload_does_not_duplicate_features(tmp_path,
     assert tmux("list-panes", "-t", "=seed", "-F", "#{pane_dead}") == "0"
 
 
+@pytest.mark.parametrize("width", [40, 80, 160])
+@pytest.mark.parametrize("language,detach", [("en", "detach"), ("zh", "离开")])
+def test_status_footer_reveals_shortcuts_only_after_prefix(tmp_path, server, width, language, detach):
+    env, tmux = server
+    directory = tmp_path / ("project-" * 30 if language == "en" else "项目目录" * 20)
+    directory.mkdir()
+    # A long ASCII/CJK path exercises the footer's displayed-width reservation.
+    tmux("respawn-pane", "-k", "-t", "=seed:", "-c", str(directory), "sleep", "60")
+    tmux("source-file", str(SOURCE / "config/tmux.conf"))
+    tmux("set-option", "-g", "@pimux_language", language)
+    tmux("set-option", "-g", "status-right", "")
+    pane = tmux("display-message", "-p", "-t", "=seed:", "#{pane_id}")
+    pid = tmux("display-message", "-p", "-t", pane, "#{pane_pid}")
+    master, slave = os.openpty()
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, width, 0, 0))
+    client = subprocess.Popen(["tmux", "attach-session", "-t", "=seed"], env=env,
+                              stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
+    output = bytearray()
+
+    def wait_for(condition):
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if condition():
+                return
+            if select.select([master], [], [], .05)[0]:
+                output.extend(os.read(master, 65536))
+        pytest.fail(output.decode(errors="replace")[-1500:])
+
+    def rendered(option):
+        return re.sub(r"#\[[^]]*\]", "", tmux("list-clients", "-F", f"#{{E:{option}}}"))
+
+    def footer_width():
+        return int(tmux("list-clients", "-F", "#{w:#{E:status-format[1]}}"))
+
+    try:
+        wait_for(lambda: tmux("list-clients", "-F", "#{session_name}") == "seed")
+        assert tmux("list-clients", "-F", "#{client_width}") == str(width)
+        normal = f"Ctrl-a → d {detach}"
+        assert rendered("@pimux_hint_normal") == normal
+        footer = rendered("status-format[1]")
+        assert footer.endswith(f" {normal}")
+        assert str(directory) not in footer
+        assert directory.name[-5:] in footer
+        assert 0 < footer_width() <= width
+        for _ in range(2):
+            os.write(master, b"\x01")
+            wait_for(lambda: tmux("list-clients", "-F", "#{client_prefix}") == "1")
+            prefix = rendered("status-format[1]")
+            assert prefix != footer and "Ctrl-a" in prefix
+            for key in ("c ", ", ", "x ", "Esc"):
+                assert key in prefix
+            assert 0 < footer_width() <= width
+            os.write(master, b"\x1b")
+            wait_for(lambda: tmux("list-clients", "-F", "#{client_prefix}") == "0")
+            assert rendered("status-format[1]") == footer
+
+        # Contextual mode hints still take precedence over the quiet footer.
+        tmux("copy-mode", "-t", pane)
+        assert "[COPY]" in rendered("status-format[1]")
+        tmux("send-keys", "-t", pane, "-X", "cancel")
+        assert rendered("status-format[1]") == footer
+        os.write(master, b"\x01d")
+        wait_for(lambda: client.poll() is not None)
+        assert client.returncode == 0
+        assert tmux("display-message", "-p", "-t", pane, "#{pane_pid} #{pane_dead}") == f"{pid} 0"
+    finally:
+        if client.poll() is None:
+            client.terminate()
+            client.wait(timeout=5)
+        os.close(master)
+        os.close(slave)
+
+
+@pytest.mark.parametrize('language', ['en', 'zh'])
+@pytest.mark.parametrize('columns', [40, 80, 160])
+def test_status_footer_expands_path_and_prefix_at_supported_widths(tmp_path, server, preview_terminals, language, columns):
+    env, tmux = server
+    start, wait_for = preview_terminals
+    cwd = tmp_path / 'terminal path TQ7'
+    cwd.mkdir()
+    tmux('source-file', str(SOURCE / 'config/tmux.conf'))
+    tmux('set-option', '-g', '@pimux_language', language)
+    tmux('set-option', '-g', 'status-left', 'COMPAT-READY')
+    window, pane = tmux('new-window', '-t', 'seed', '-c', str(cwd), '-P', '-F',
+                        '#{window_id} #{pane_id}', 'sleep 60').split()
+    before = tmux('list-panes', '-a', '-F', '#{pane_id}:#{pane_pid}:#{pane_dead}')
+    client = start(['tmux', 'attach-session', '-t', 'seed'], env)
+    fcntl.ioctl(client[2], termios.TIOCSWINSZ, struct.pack('HHHH', 32, columns, 0, 0))
+    wait_for(lambda: b'COMPAT-READY' in client[3])
+    wait_for(lambda: tmux('list-clients', '-F', '#{client_width}') == str(columns))
+
+    def footer():
+        return tmux('list-clients', '-F', '#{E:status-format[1]}')
+
+    normal = footer()
+    assert 'TQ7' in normal, normal
+    assert 'Ctrl-a' in normal and ('detach' if language == 'en' else '离开') in normal
+    os.write(client[1], b'\x01')
+    wait_for(lambda: tmux('list-clients', '-F', '#{client_prefix}') == '1')
+    prefix = footer()
+    assert 'Ctrl-a' in prefix and 'Esc' in prefix, prefix
+    os.write(client[1], b'\x1b')
+    wait_for(lambda: tmux('list-clients', '-F', '#{client_prefix}') == '0')
+    assert 'TQ7' in footer()
+    assert tmux('display-message', '-p', '-t', 'seed:', '#{window_id}:#{pane_id}') == f'{window}:{pane}'
+    assert tmux('list-panes', '-a', '-F', '#{pane_id}:#{pane_pid}:#{pane_dead}') == before
+
+
 def test_concurrent_create_exact_name_and_preserve_existing_window(tmp_path, server):
     env, tmux = server
     cwd = tmp_path / "project 'quoted'; literal"
@@ -299,6 +405,8 @@ def test_noninteractive_entry_is_read_only(server):
 def test_background_tmux_manages_exact_windows_without_a_terminal(tmp_path, server):
     env, tmux = server
     before = tmux("list-panes", "-a", "-F", "#{pane_id} #{pane_pid}")
+    focus_format = "#{window_id} #{pane_id} #{pane_mode}"
+    focus_before = tmux("display-message", "-p", "-t", "=seed:", focus_format)
     directory = tmp_path / "experiment 'quoted'; $literal"
     directory.mkdir()
 
@@ -308,7 +416,8 @@ def test_background_tmux_manages_exact_windows_without_a_terminal(tmp_path, serv
 
     assert call().returncode == 2
     created = call("new-window", "-d", "-t", "=seed:", "-n", "experiment 'one'; $literal",
-                   "-c", str(directory), "-P", "-F", "#{window_id} #{pane_id}", "sleep", "60")
+                   "-c", str(directory), "-P", "-F", "#{window_id} #{pane_id}",
+                   "sh", "-c", "printf '%s\\n' 'background output'; exec sleep 60")
     assert created.returncode == 0, created.stderr
     window, pane = created.stdout.strip().split()
     assert window.startswith("@") and pane.startswith("%")
@@ -319,6 +428,21 @@ def test_background_tmux_manages_exact_windows_without_a_terminal(tmp_path, serv
     metadata = call("display-message", "-p", "-t", pane, "#{window_id}\t#{window_name}")
     assert metadata.stdout == f"{window}\tevaluation 'two'\n"
     assert not metadata.stderr
+    # Inspecting a background terminal must not attach, select it or enter copy mode.
+    # Compare the native capture result rather than assuming tmux's whitespace.
+    capture_args = ("capture-pane", "-p", "-t", pane, "-S", "-100")
+    deadline = time.monotonic() + 5
+    while "background output" not in tmux(*capture_args) and time.monotonic() < deadline:
+        time.sleep(.05)
+    native_capture = subprocess.run(["tmux", *capture_args], env=env,
+                                    text=True, capture_output=True)
+    capture = call(*capture_args)
+    assert "background output" in capture.stdout
+    assert (capture.returncode, capture.stdout, capture.stderr) == (
+        native_capture.returncode, native_capture.stdout, native_capture.stderr)
+    assert tmux("display-message", "-p", "-t", "=seed:", focus_format) == focus_before
+    assert not tmux("display-message", "-p", "-t", pane, "#{pane_mode}")
+    assert tmux("display-message", "-p", "-t", pane, "#{pane_pid}") == pid
     native_error = subprocess.run(["tmux", "list-panes", "-t", "@999999999"], env=env,
                                   text=True, capture_output=True)
     error = call("list-panes", "-t", "@999999999")
@@ -1547,11 +1671,16 @@ def test_copy_path_targets_only_requesting_client(tmp_path, server, source):
                 if master in readable:
                     outputs[index].extend(os.read(master, 65536))
 
+        def clients_rendered():
+            return all(f' {session} '.encode() in output
+                       for session, output in zip(('seed', 'peer'), outputs))
+
         deadline = time.monotonic() + 8
-        # Registration can precede terminal setup; wait for both rendered UIs.
-        while not all(b'menu' in output for output in outputs) and time.monotonic() < deadline:
+        # Registration can precede terminal setup; identify each rendered session
+        # by its status label, independently of the contextual shortcut hints.
+        while not clients_rendered() and time.monotonic() < deadline:
             drain()
-        assert all(b'menu' in output for output in outputs), outputs
+        assert clients_rendered(), outputs
         if source == "ip":
             os.write(clients[0][1], b'\x01h')
             deadline = time.monotonic() + 8
@@ -1888,3 +2017,333 @@ def test_close_pane_confirms_and_targets_only_the_selected_split(server):
             client.wait(timeout=5)
         os.close(master)
         os.close(slave)
+
+
+def native_pane_field(env, pane, field):
+    # The server fixture strips whitespace; paths must lose only tmux's record LF.
+    result = subprocess.run(['tmux', 'display-message', '-p', '-t', pane, '#{' + field + '}'],
+                            env=env, capture_output=True, text=True, check=True)
+    return result.stdout.removesuffix('\n')
+
+
+@pytest.fixture
+def preview_terminals():
+    clients = []
+
+    def start(command, env):
+        master, slave = os.openpty()
+        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 32, 160, 0, 0))
+        process = subprocess.Popen(command, env=env, stdin=slave, stdout=slave, stderr=slave,
+                                   start_new_session=True)
+        client = (process, master, slave, bytearray())
+        clients.append(client)
+        return client
+
+    def wait_for(condition):
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            if condition():
+                return
+            for fd in select.select([client[1] for client in clients], [], [], .03)[0]:
+                client = next(client for client in clients if client[1] == fd)
+                client[3].extend(os.read(fd, 65536))
+        pytest.fail('\n'.join(client[3].decode(errors='replace')[-2000:] for client in clients)
+                    or 'Timed out waiting for native pane state')
+
+    try:
+        yield start, wait_for
+    finally:
+        for process, master, slave, _ in clients:
+            if process.poll() is None:
+                process.terminate()
+                process.wait(timeout=5)
+            os.close(master)
+            os.close(slave)
+
+
+@pytest.mark.parametrize('exited', [False, True], ids=['live', 'retained-exit'])
+def test_window_preview_handles_real_multiline_cwd(tmp_path, server, preview_terminals, monkeypatch, exited):
+    import window_details
+    from inspect_ui import text
+
+    env, tmux = server
+    _, wait_for = preview_terminals
+    monkeypatch.setenv('PIMUX_LANGUAGE', 'en')
+    cwd = tmp_path / 'tab\tline\nleaf\\研究  '
+    cwd.mkdir()
+    tmux('set-window-option', '-g', 'remain-on-exit', 'on')
+    window, pane = tmux('new-window', '-d', '-t', 'seed', '-c', str(cwd), '-P', '-F',
+                        '#{window_id} #{pane_id}', 'bash', '-c',
+                        'printf "preview-output\\n"; read -r ready; exit 7').split()
+    other = tmux('split-window', '-d', '-t', pane, '-c', str(tmp_path), '-P', '-F', '#{pane_id}', 'sleep', '60')
+    wait_for(lambda: 'preview-output' in tmux('capture-pane', '-p', '-t', pane))
+    assert native_pane_field(env, pane, 'pane_current_path') == str(cwd)
+    tmux('set-option', '-p', '-t', pane, '@pimux_command_status', '7')
+    if exited:
+        tmux('send-keys', '-t', pane, 'Enter')
+        try:
+            wait_for(lambda: tmux('display-message', '-p', '-t', pane, '#{pane_dead}:#{pane_dead_status}') == '1:7')
+        except pytest.fail.Exception as failure:
+            # Inspect only after the original deadline; never signal or retry the pane.
+            diagnostics = [str(failure)]
+            fields = ('pane_dead', 'pane_dead_status', 'pane_dead_signal',
+                      'pane_pid', 'pid', 'pane_current_command', 'pane_input_off')
+            snapshot = ''
+            for label, args in (
+                ('pane state', ('display-message', '-p', '-t', pane,
+                                '\n'.join(name + '=#{' + name + '}' for name in fields))),
+                ('capture-pane', ('capture-pane', '-p', '-t', pane)),
+            ):
+                try:
+                    result = subprocess.run(['tmux', *args], env=env, capture_output=True,
+                                            text=True, timeout=3)
+                    diagnostics.append(f'{label} (returncode={result.returncode}):\n'
+                                       f'{result.stdout}\nstderr: {result.stderr}')
+                    if label == 'pane state' and result.returncode == 0:
+                        snapshot = result.stdout
+                except (OSError, subprocess.SubprocessError) as error:
+                    diagnostics.append(f'{label}: {error!r}')
+            pid = next((line.removeprefix('pane_pid=') for line in snapshot.splitlines()
+                        if line.startswith('pane_pid=')), '')
+            if pid.isascii() and pid.isdigit():
+                for name in ('status', 'stat', 'wchan'):
+                    path = Path('/proc') / pid / name
+                    try:
+                        content = path.read_text()
+                        diagnostics.append(f'{path}:\n{content}')
+                        if name == 'stat':
+                            # Linux stat fields follow the final ')' of the command name.
+                            values = content.rsplit(')', 1)[-1].split()
+                            if len(values) >= 50:
+                                diagnostics.append('proc stat parsed: '
+                                                   f'state={values[0]} ppid={values[1]} '
+                                                   f'exit_code={values[49]}')
+                    except OSError as error:
+                        diagnostics.append(f'{path}: {error!r}')
+            else:
+                diagnostics.append('No valid pane PID available for /proc diagnostics')
+            pytest.fail('\n'.join(diagnostics), pytrace=False)
+    native_cwd = native_pane_field(env, pane, 'pane_current_path')
+    before = tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid} #{pane_dead}')
+    blocks = window_details.window_blocks(shutil.which('tmux'), tmux('display-message', '-p', '#{socket_path}'), window)
+    assert len(blocks) == 2
+    assert [block[0].plain.split(' · ')[0] for block in blocks] == [pane, other]
+    assert 'exit 7' in blocks[0][1].plain
+    assert blocks[0][2].plain == text('Cwd: ' + (native_cwd or 'unavailable')).plain
+    assert 'preview-output' in '\n'.join(line.plain for line in blocks[0])
+    assert tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid} #{pane_dead}') == before
+
+
+def test_window_preview_uses_real_foreground_cwd(tmp_path, server, preview_terminals, monkeypatch):
+    import shlex
+    import sys
+    import window_details
+
+    env, tmux = server
+    _, wait_for = preview_terminals
+    monkeypatch.setenv('PIMUX_LANGUAGE', 'en')
+    parent, child = tmp_path / 'parent', tmp_path / 'child\\研究  '
+    parent.mkdir()
+    child.mkdir()
+    rc = tmp_path / 'parent.bash'
+    rc.write_text("PS1='__PARENT_READY__> '\n")
+    window, pane = tmux('new-window', '-d', '-t', 'seed', '-c', str(parent), '-P', '-F',
+                        '#{window_id} #{pane_id}', 'bash', '--noprofile', '--rcfile', str(rc), '-i').split()
+    wait_for(lambda: '__PARENT_READY__>' in tmux('capture-pane', '-p', '-t', pane))
+    shell_pid = tmux('display-message', '-p', '-t', pane, '#{pane_pid}')
+    command = shlex.join([sys.executable, '-c', 'import os, sys; os.chdir(sys.argv[1]); input()', str(child)])
+    tmux('send-keys', '-t', pane, '-l', command)
+    tmux('send-keys', '-t', pane, 'Enter')
+    wait_for(lambda: native_pane_field(env, pane, 'pane_current_path') == str(child))
+    assert Path(f'/proc/{shell_pid}/cwd').readlink() == parent
+    blocks = window_details.window_blocks(shutil.which('tmux'), tmux('display-message', '-p', '#{socket_path}'), window)
+    assert blocks[0][2].plain == 'Cwd: ' + str(child)
+    assert tmux('display-message', '-p', '-t', pane, '#{pane_pid}:#{pane_dead}') == shell_pid + ':0'
+
+
+@pytest.mark.parametrize('search', [True, False], ids=['search', 'expanded-window'])
+def test_manager_targets_exact_window_and_pane_with_control_characters(tmp_path, server, preview_terminals, search):
+    env, tmux = server
+    start, wait_for = preview_terminals
+    cwd = tmp_path / 'prefix\nunique-tail\\研究  '
+    cwd.mkdir()
+    window, pane = tmux('new-window', '-d', '-t', 'seed', '-n', 'wanted\twindow\nname', '-c', str(cwd),
+                        '-P', '-F', '#{window_id} #{pane_id}', 'sleep', '60').split()
+    session = tmux('display-message', '-p', '-t', pane, '#{session_id}')
+    assert native_pane_field(env, pane, 'pane_current_path') == str(cwd)
+    before = tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid}')
+    script = '''source "$1"
+configure_runtime
+load_manager
+connect_session() { printf '\\nOPEN:%s:%s:%s\\n' "$1" "$2" "$4"; }
+manager
+'''
+    process, master, _, output = start(['bash', '-c', script, 'test', str(SOURCE / 'bin/pimux')], env)
+    wait_for(lambda: '会话管理'.encode() in output)
+    output.clear()
+    if search:
+        os.write(master, b'/unique-tail')
+
+        def query_is_rendered():
+            lines = bytes(output).rsplit(b'\x1b[H\x1b[2J', 1)[-1].splitlines()
+            return len(lines) > 1 and '会话管理'.encode() in lines[0] and b'unique-tail' in lines[1]
+
+        wait_for(query_is_rendered)
+    else:
+        os.write(master, b'\x1b[C')
+        wait_for(lambda: b'wanted window name' in output)
+        os.write(master, b'\x1b[B\x1b[B')
+    os.write(master, b'\r')
+    wait_for(lambda: f'OPEN:{session}:{window}:{pane if search else ""}'.encode() in output)
+    assert process.wait(timeout=5) == 0
+    assert tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid}') == before
+
+
+def test_window_preview_popup_preserves_two_attached_clients(tmp_path, server, preview_terminals):
+    env, tmux = server
+    start, wait_for = preview_terminals
+    tmux('source-file', str(SOURCE / 'config/tmux.conf'))
+    tmux('set-option', '-g', '@pimux_launcher', str(SOURCE / 'bin/pimux'))
+    for name in ('PIMUX_RUNTIME_FILE', 'PIMUX_LANGUAGE_FILE'):
+        tmux('set-environment', '-g', name, env[name])
+    original, original_pane = tmux('display-message', '-p', '-t', 'seed:', '#{window_id} #{pane_id}').split()
+    tmux('split-window', '-d', '-t', original_pane, 'sleep', '60')
+    received = tmp_path / 'received'
+    receiver_window, receiver = tmux(
+        'new-window', '-d', '-t', 'seed', '-n', 'input-receiver', '-P', '-F', '#{window_id} #{pane_id}',
+        'bash', '-c', 'while IFS= read -r line; do printf "%s\\n" "$line" >> "$1"; done',
+        'receiver', str(received)).split()
+    first = start([str(SOURCE / 'bin/pimux'), '-n', 'seed'], env)
+    wait_for(lambda: len(tmux('list-clients', '-F', '#{session_id}').splitlines()) == 1)
+    first_view = tmux('list-clients', '-F', '#{session_id}')
+    second = start([str(SOURCE / 'bin/pimux'), '-n', 'seed'], env)
+    wait_for(lambda: len(tmux('list-clients', '-F', '#{session_id}').splitlines()) == 2)
+    views = tmux('list-clients', '-F', '#{session_id}').splitlines()
+    second_view = next(view for view in views if view != first_view)
+    tmux('select-window', '-t', f'{first_view}:{original}')
+    tmux('select-window', '-t', f'{second_view}:{receiver_window}')
+    tmux('select-pane', '-t', original_pane)
+    tmux('copy-mode', '-t', original_pane)
+
+    def clients():
+        return sorted(tmux('list-clients', '-F', '#{client_name} #{session_id} #{window_id} #{pane_id} #{pane_mode}').splitlines())
+
+    before_clients = clients()
+    before_panes = tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid} #{pane_dead} #{pane_mode}')
+    before_output = tmux('capture-pane', '-p', '-t', original_pane)
+    assert tmux('display-message', '-p', '-t', original_pane, '#{pane_mode}') == 'copy-mode'
+    os.write(first[1], b'\x01w')
+    wait_for(lambda: '会话管理'.encode() in first[3])
+    first[3].clear()
+    os.write(first[1], b'd')
+    wait_for(lambda: '窗口预览'.encode() in first[3])
+    assert clients() == before_clients
+    assert tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid} #{pane_dead} #{pane_mode}') == before_panes
+    os.write(second[1], b'second-client-input\r')
+    wait_for(lambda: received.exists() and received.read_text() == 'second-client-input\n')
+    assert tmux('display-message', '-p', '-t', receiver, '#{pane_dead}') == '0'
+    assert tmux('capture-pane', '-p', '-t', original_pane) == before_output
+    first[3].clear()
+    os.write(first[1], b'q')
+    wait_for(lambda: '会话管理'.encode() in first[3])
+    os.write(first[1], b'q')
+    wait_for(lambda: '__manager' not in tmux('show-messages', '-J'))
+    assert clients() == before_clients
+    assert tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid} #{pane_dead} #{pane_mode}') == before_panes
+
+
+@pytest.mark.parametrize('replaced', [False, True])
+def test_install_preserves_running_server_when_binary_differs_or_was_upgraded(tmp_path, server, preview_terminals, replaced):
+    import shlex
+
+    env, tmux = server
+    start, wait_for = preview_terminals
+    home = tmp_path / 'installed-home'
+    home.mkdir()
+    assert install(home).returncode == 0
+    tmux('set-option', '-g', 'status-left', 'INSKEEP')
+    tmux('new-session', '-d', '-s', 'other', 'sleep 60')
+    first = start(['tmux', 'attach-session', '-t', 'seed'], env)
+    second = start(['tmux', 'attach-session', '-t', 'other'], env)
+    wait_for(lambda: b'INSKEEP' in first[3] and b'INSKEEP' in second[3])
+    before = (
+        tmux('list-panes', '-a', '-F', '#{pane_id}:#{pane_pid}:#{pane_dead}:#{pane_in_mode}'),
+        tmux('list-clients', '-F', '#{client_name}:#{session_id}:#{window_id}:#{pane_id}'),
+        tmux('show-options', '-gqv', 'status-left'),
+    )
+    wrapper = tmp_path / 'selected-tmux'
+    disk_version = tmux('-V') if replaced else 'tmux 9.0'
+    wrapper.write_text(f'#!/bin/bash\nif [[ $1 == -V ]]; then echo {shlex.quote(disk_version)}; else exec {shlex.quote(shutil.which("tmux"))} "$@"; fi\n')
+    wrapper.chmod(0o755)
+    Path(env['PIMUX_RUNTIME_FILE']).write_text(f'{wrapper}\ndefault\n{shutil.which("tmux")}\n')
+    result = subprocess.run(
+        ['bash', '-c', 'source "$1"; configure_runtime; PIMUX_TMUX_REPLACED=$2; reload_compatible_runtime',
+         'test', str(SOURCE / 'scripts/setup-tmux.sh'), str(replaced).lower()],
+        env={**env, 'HOME': str(home)}, capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert 'Existing server kept unchanged' in result.stdout
+    assert before == (
+        tmux('list-panes', '-a', '-F', '#{pane_id}:#{pane_pid}:#{pane_dead}:#{pane_in_mode}'),
+        tmux('list-clients', '-F', '#{client_name}:#{session_id}:#{window_id}:#{pane_id}'),
+        tmux('show-options', '-gqv', 'status-left'),
+    )
+    assert first[0].poll() is None and second[0].poll() is None
+
+
+def test_install_checks_new_runtime_module_before_replacing_launcher(tmp_path):
+    home = tmp_path / 'home'
+    home.mkdir()
+    assert install(home).returncode == 0
+    launcher = home / '.local/bin/pimux'
+    old_launcher = '#!/bin/bash\n# pimux-managed: previous launcher\necho previous\n'
+    launcher.write_text(old_launcher)
+    helper = home / '.config/pimux/tmux_compat.bash'
+    helper.write_text('# unrelated user file\n')
+    result = install(home)
+    assert result.returncode != 0
+    assert launcher.read_text() == old_launcher
+    assert helper.read_text() == '# unrelated user file\n'
+
+
+def test_install_reload_preserves_other_server_and_its_attached_client(tmp_path, server, preview_terminals):
+    env, tmux = server
+    start, wait_for = preview_terminals
+    home = tmp_path / 'home'
+    home.mkdir()
+    assert install(home).returncode == 0
+    tmux('set-option', '-g', 'status-left', 'I-OLD')
+    tmux('set-option', '-t', 'seed', '@pimux_launcher', str(home / '.local/bin/pimux'))
+    tmux('-L', 'install-main', '-f', '/dev/null', 'new-session', '-d', '-s', 'fresh', 'sleep 60')
+    try:
+        tmux('-L', 'install-main', 'set-option', '-g', 'status-left', 'I-MAIN')
+        tmux('-L', 'install-main', 'set-option', '-t', 'fresh', '@pimux_launcher', str(home / '.local/bin/pimux'))
+        old_client = start(['tmux', 'attach-session', '-t', 'seed'], env)
+        primary_client = start(['tmux', '-L', 'install-main', 'attach-session', '-t', 'fresh'], env)
+        wait_for(lambda: b'I-OLD' in old_client[3] and b'I-MAIN' in primary_client[3])
+        old_settings = (tmux('show-options', '-g'), tmux('show-options', '-t', 'seed'), tmux('list-keys'))
+
+        def programs_and_clients(options):
+            return (
+                tmux(*options, 'list-panes', '-a', '-F', '#{pane_id}:#{pane_pid}:#{pane_dead}:#{pane_in_mode}'),
+                tmux(*options, 'list-clients', '-F', '#{client_name}:#{session_id}:#{window_id}:#{pane_id}'),
+            )
+
+        before = [programs_and_clients(options) for options in ([], ['-L', 'install-main'])]
+        Path(env['PIMUX_RUNTIME_FILE']).write_text(f"{shutil.which('tmux')}\ninstall-main\n{shutil.which('tmux')}\n")
+        inherited = dict(env, HOME=str(home),
+                         TMUX=tmux('display-message', '-p', '#{socket_path},#{pid},0'),
+                         TMUX_PANE=tmux('display-message', '-p', '-t', 'seed', '#{pane_id}'))
+        result = subprocess.run(
+            ['bash', '-c', 'source "$1"; configure_runtime; reload_compatible_runtime',
+             'test', str(SOURCE / 'scripts/setup-tmux.sh')],
+            env=inherited, capture_output=True, text=True,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert tmux('-L', 'install-main', 'show-options', '-gqv', '@pimux_theme')
+        assert tmux('-L', 'install-main', 'show-options', '-qv', '-t', 'fresh', '@pimux_launcher') == str(home / '.local/bin/pimux')
+        assert old_settings == (tmux('show-options', '-g'), tmux('show-options', '-t', 'seed'), tmux('list-keys'))
+        assert before == [programs_and_clients(options) for options in ([], ['-L', 'install-main'])]
+        assert old_client[0].poll() is None and primary_client[0].poll() is None
+    finally:
+        tmux('-L', 'install-main', 'kill-server')

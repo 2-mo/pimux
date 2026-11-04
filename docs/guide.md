@@ -6,7 +6,9 @@
 
 ## Installation details
 
-The installer verifies the release checksum, installs missing system dependencies through apt on Debian/Ubuntu, installs or reuses [Starship](https://starship.rs/), and sets up the complete workspace in your home directory. Administrator access is only needed when system packages are missing. NVIDIA drivers are optional and are never installed by PiMux. The installer uses [uv](https://docs.astral.sh/uv/) to prepare a private Python environment for the bundled GPU dashboard, installing uv and a compatible Python when needed. It does not install packages into your research environment.
+The installer verifies the release checksum and checks the tmux binary selected by your runtime configuration before changing system packages. On Debian/Ubuntu it can install missing dependencies or upgrade an older, verified, unmodified apt-owned tmux after showing the exact command and receiving `y` from your terminal. Any use of sudo is shown before confirmation. Without a controlling terminal it exits with instructions; piped installation can still confirm through `/dev/tty`. Unknown or custom tmux installations, missing or mismatched installed-package digests, diversions and unavailable or insufficient package candidates require manual attention. The installer never adds repositories or upgrades your custom binary.
+
+It installs or reuses [Starship](https://starship.rs/) and sets up the complete workspace in your home directory. NVIDIA drivers are optional and are never installed by PiMux. The installer uses [uv](https://docs.astral.sh/uv/) to prepare a private Python environment for the bundled GPU dashboard, installing uv and a compatible Python when needed. It does not install packages into your research environment. Run PiMux installation as your normal user; do not run the whole installer with sudo.
 
 The install command enables `pimux` in this terminal immediately. The installer also configures the command path for future Bash terminals and Zsh when present, preserving your existing settings and backing up changed startup files.
 
@@ -49,7 +51,7 @@ pimux --version
 
 Press `Ctrl-a`, release it, then press the action key. A bright orange badge shows that PiMux is waiting for the next key, alongside common actions. Esc cancels and restores the normal status bar:
 
-New-window, rename and close-pane shortcuts stay visible while waiting, with shorter labels in narrow terminals. Wide terminals also show them beside the current directory during normal use. `Ctrl-a h` opens with Workspace expanded; action keys work directly inside this menu.
+During normal use, the footer shows the current directory and only `Ctrl-a → d detach`. Pressing `Ctrl-a` reveals new-window, rename and close-pane shortcuts, with shorter labels in narrow terminals. Esc cancels and restores the quiet footer. `Ctrl-a h` opens with Workspace expanded; action keys work directly inside this menu.
 
 | Key | Action |
 |---|---|
@@ -100,6 +102,8 @@ Press `p` to request the public egress IP from [ipify](https://www.ipify.org/), 
 Choose **Ports** in the main `pimux` interface to inspect local TCP listeners, owning processes, commands and working directories. The optional `pimux ports` shortcut and **Listening ports** in `Ctrl-a h` remain available. Press `/` to filter by port, process or directory; Enter finishes typing and Esc clears the search. Use `pimux ports 8888` for an exact port lookup. Visibility follows system permissions. These are server listeners, not a service health check or your local forwarded addresses.
 
 In the manager, select a window and press `d` to preview each pane's idle/alive state, working directory and last 60 lines of output. Selecting a session previews its current window. Exit codes are available for exited panes retained by tmux. Previews refresh every three seconds; scroll with the wheel or arrows, and use `q` / Esc to return to the same manager selection. Inspection does not change another client's selected window or send keys to applications.
+
+Previews follow the foreground program's working directory reported by tmux. Tabs, line breaks and trailing spaces in pane metadata do not split records or hide exit status. The manager displays control characters as spaces so window lists and searches keep targeting the same IDs.
 
 ## Environment defaults
 
@@ -156,6 +160,8 @@ The status bar refreshes on a five-second timer; window changes and other redraw
 
 This release supports Linux with Bash 4+, tmux 3.2+, coreutils, grep, sed, util-linux and the `tmux-256color` terminfo entry. The installer handles dependencies on Debian/Ubuntu. On other Linux distributions, install those prerequisites using your system package manager. macOS and native Windows are not currently supported; Windows users can use a Linux environment through WSL or SSH.
 
+The tmux 3.2 minimum comes from popups, status formats and client-targeted clipboard support. Prefer your distribution's matching tmux/ncurses packages: Ubuntu 22.04's tmux 3.2a with ncurses 6.3 passed the focused terminal checks. Old tmux source builds linked to newer ncurses can crash during clipboard copying; this [upstream issue](https://github.com/tmux/tmux/issues/3699) was addressed in tmux 3.4. A version check cannot certify a custom build's library combination. Use a distribution fix or rebuild with the upstream compatibility fix; PiMux does not redirect clipboard output to another client as a workaround.
+
 For an existing system tmux session, `pimux --system ls` lists it and `pimux --system -n NAME` enters it. Detach first when switching between tmux servers. Inside an existing PiMux workspace, the plain `pimux` command automatically uses its server. Reloads update PiMux sessions; ordinary sessions keep their settings and key actions.
 
 An optional `~/.config/pimux/runtime.conf` can select an already-installed tmux binary and a different socket. Its three lines are the primary binary's absolute path, the primary socket name, and the system binary's absolute path. This is only needed for an existing parallel tmux installation; fresh installs need no runtime file.
@@ -164,7 +170,7 @@ Choose **Copy current directory path** in `Ctrl-a h`, or press `Ctrl-a y`. The p
 
 ## Update and uninstall
 
-Run `pimux update`, or open `Ctrl-a h` and choose **Update PiMux**. The updater downloads the latest release, verifies its checksum, preserves language/runtime preferences and backs up changed managed files. It reloads connected workspaces without restarting tasks. The install command also works for updating older versions that do not have the update command. `pimux reload` and `Ctrl-a r` use the same reload path, including local status overrides in connected PiMux views.
+Run `pimux update`, or open `Ctrl-a h` and choose **Update PiMux**. The updater downloads the latest release, verifies its checksum, preserves language/runtime preferences and backs up changed managed files. It reports the installed binary and running server versions separately. Automatic reload only targets the configured server whose supported version matches the binary, and only when this installation did not replace tmux. It does not follow an inherited `TMUX` environment or reload a secondary system server. An older, unqueryable or just-upgraded server is left unchanged: replacing the binary does not upgrade a running process. Keep its sessions until your work finishes naturally; the installer does not kill or restart them. The install command also works for updating older versions that do not have the update command. `pimux reload` and `Ctrl-a r` remain explicit reload commands, including local status overrides in connected PiMux views.
 
 ```bash
 pimux uninstall
