@@ -14,6 +14,8 @@ curl -fsSL https://raw.githubusercontent.com/2-mo/pimux/main/install.sh | bash &
 
 Debian/Ubuntu 会自动补齐 tmux 等终端依赖。
 
+独立的 [Mac 大版本源码预览](macos.md) 已有本机终端、[多服务器 CLI 单次快照](hosts.md)和明确确认的公钥授权向导，可读取 VS Code/OpenSSH 别名。尚无统一远端服务器 TUI、远端会话进入/管理或 Mac 发布安装包。此预览需使用经过审查的源码工作区，上面的 Linux 下载命令不提供这些 Mac 功能。
+
 ## 使用
 
 ```bash
@@ -25,7 +27,9 @@ pimux
 - 进入会话后，先按并松开 `Ctrl-a`，再按 `-` 上下分屏、`v` 左右分屏、`h` 打开菜单、`d` 离开并保留任务。
 - 让 agent 通过 `pimux tmux` 自行组织实验窗口：[后台管理说明](agents.zh-CN.md)。
 
-## 更新
+## 更新 · Linux
+
+Mac 源码预览需按 [Mac 指南](macos.md)从选定工作区重新安装；`pimux update` 不会下载 Mac 发布包。
 
 ```bash
 pimux update

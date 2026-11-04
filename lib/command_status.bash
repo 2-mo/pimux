@@ -6,7 +6,7 @@ pimux_command_status_prompt() {
     fi
     local PIMUX_EXIT_SIGNATURE="${TMUX%%,*}|$TMUX_PANE|$PIMUX_EXIT_CODE"
     if [[ ${PIMUX_EXIT_REPORTED:-} != "$PIMUX_EXIT_SIGNATURE" ]]; then
-        if command tmux -S "${TMUX%%,*}" set-option -p -t "$TMUX_PANE" \
+        if command "${PIMUX_TMUX:-tmux}" -S "${TMUX%%,*}" set-option -p -t "$TMUX_PANE" \
                 @pimux_command_status "$PIMUX_EXIT_CODE" 2>/dev/null; then
             PIMUX_EXIT_REPORTED=$PIMUX_EXIT_SIGNATURE
         fi

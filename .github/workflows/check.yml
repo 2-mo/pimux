@@ -15,7 +15,46 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Check terminal behavior in the shared environment
-        run: bash scripts/check.sh tests/test_pimux.py tests/test_tmux_passthrough.py tests/test_gpu.py tests/test_views.py tests/test_environment.py tests/test_installer.py -q
+        run: bash scripts/check.sh tests/test_pimux.py tests/test_tmux_passthrough.py tests/test_installer.py tests/test_gpu.py tests/test_views.py tests/test_environment.py tests/test_macos.py tests/test_host_runtime.py tests/test_native_terminal.py tests/test_hosts.py tests/test_ssh_discovery.py tests/test_access_preview.py tests/test_access_setup.py tests/test_access_recovery.py tests/test_access_identity.py tests/test_ssh_security.py -q
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.11.29'
+      - name: Verify two isolated SSH servers and strict jump policy
+        run: bash scripts/check-ssh.sh
+      - name: Keep the Linux bootstrap compatible with its existing Bash minimum
+        run: >-
+          docker run --rm --network none --read-only --tmpfs /tmp
+          --env HOME=/tmp/pimux-legacy-home --volume "$PWD:/source:ro" --workdir /source
+          bash:4.2@sha256:75a8dcd5c2a865e69116225dc486e2dbdd2dda1434759fa7f1fc50c72eeadbea
+          bash scripts/check-bash-compat.sh
       - name: Build release archive
         run: bash scripts/package.sh
+  macos-terminal:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.11.29'
+      - name: Keep dependency cache outside isolated test homes
+        run: echo "UV_CACHE_DIR=$RUNNER_TEMP/pimux-uv-cache" >> "$GITHUB_ENV"
+      - name: Build pinned removable native Bash and tmux
+        run: |
+          python scripts/build-macos-runtime.py "$RUNNER_TEMP/pimux-native-runtime"
+          echo "$RUNNER_TEMP/pimux-native-runtime/prefix/bin" >> "$GITHUB_PATH"
+          echo "PIMUX_BASH=$RUNNER_TEMP/pimux-native-runtime/prefix/bin/bash" >> "$GITHUB_ENV"
+      - name: Prepare locked test dependencies
+        run: uv sync --locked
+      - name: Check native terminal and installed lifecycle
+        run: >-
+          uv run --locked python -m pytest tests/test_macos.py tests/test_gpu.py
+          tests/test_views.py tests/test_environment.py tests/test_host_runtime.py
+          tests/test_pimux.py tests/test_native_terminal.py tests/test_hosts.py tests/test_ssh_discovery.py tests/test_access_preview.py tests/test_access_setup.py tests/test_access_recovery.py tests/test_access_identity.py tests/test_ssh_security.py -q

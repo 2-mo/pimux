@@ -80,6 +80,9 @@ def query_gpus():
             capture_output=True, text=True, timeout=3, check=False,
         )
     except FileNotFoundError as exc:
+        if sys.platform == "darwin":
+            raise GPUReadError(tr("NVIDIA telemetry unavailable; Apple GPU metrics are not supported.",
+                                  "NVIDIA 遥测不可用；尚不支持 Apple GPU 指标。")) from exc
         raise GPUReadError(tr("NVIDIA driver tool nvidia-smi was not found", "未找到 NVIDIA 驱动工具 nvidia-smi")) from exc
     except subprocess.TimeoutExpired as exc:
         raise GPUReadError(tr("GPU query timed out (3 seconds)", "显卡读取超时（3 秒）")) from exc

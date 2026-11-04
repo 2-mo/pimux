@@ -14,6 +14,8 @@ curl -fsSL https://raw.githubusercontent.com/2-mo/pimux/main/install.sh | bash &
 
 On Debian/Ubuntu, missing tmux and terminal dependencies are installed automatically.
 
+The separate [macOS major-version track](docs/macos.md) provides a native local terminal, one-shot [multi-server CLI snapshots](docs/hosts.md), and explicitly confirmed public-key setup. It reuses discovered VS Code/OpenSSH aliases. There is no unified remote-server TUI, remote session attachment/management, or published Mac installer. Use a reviewed source checkout for this preview; the Linux download command above does not install it.
+
 ## Use
 
 ```bash
@@ -25,7 +27,9 @@ pimux
 - Inside a session: press and release `Ctrl-a`, then `-` / `v` to split top/bottom or left/right, `h` for the menu, or `d` to detach and keep tasks running.
 - Let your agent organize experiment terminals with `pimux tmux`: [background management](docs/agents.md).
 
-## Update
+## Update · Linux
+
+For the Mac source preview, reinstall from the chosen checkout as described in [the Mac guide](docs/macos.md); `pimux update` does not download a Mac release.
 
 ```bash
 pimux update

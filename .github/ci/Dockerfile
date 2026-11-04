@@ -21,7 +21,7 @@ RUN apt-get source tmux \
 FROM ubuntu:24.04
 COPY --from=tmux-build /build/tmux_*.deb /tmp/
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates python3 /tmp/tmux_*.deb ncurses-term iproute2 procps util-linux \
+    && apt-get install -y --no-install-recommends ca-certificates python3 /tmp/tmux_*.deb ncurses-term iproute2 procps util-linux openssh-client \
     && rm -rf /var/lib/apt/lists/* /tmp/tmux_*.deb
 COPY --from=uv /uv /usr/local/bin/uv
 

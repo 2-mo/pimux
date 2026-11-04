@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Download and install the latest complete PiMux release.
 set -euo pipefail
+[[ $(uname -s) == Linux ]] || {
+    printf 'This download installer supports Linux. For the macOS source preview, use a reviewed checkout and scripts/setup-tmux.sh; see docs/macos.md.\n' >&2
+    exit 1
+}
 for dependency in curl tar sha256sum; do
     command -v "$dependency" >/dev/null 2>&1 || {
         printf 'PiMux installer requires %s.\n' "$dependency" >&2

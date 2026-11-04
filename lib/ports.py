@@ -7,6 +7,9 @@ from pathlib import Path
 import re
 import shlex
 import subprocess
+import sys
+
+import macos
 
 from gpu_ui import MUTED_STYLE, tr
 from inspect_ui import Document, text
@@ -34,6 +37,8 @@ def parse_listeners(output):
 
 
 def list_listeners():
+    if sys.platform == "darwin":
+        return [Listener(*row) for row in macos.read_listeners()]
     try:
         result = subprocess.run(["ss", "-H", "-ltnp"], capture_output=True, text=True, errors="replace", timeout=3)
     except FileNotFoundError:
@@ -47,6 +52,8 @@ def list_listeners():
 
 
 def process_info(pid):
+    if sys.platform == "darwin":
+        return macos.process_info(pid)
     directory = Path(f"/proc/{pid}")
     try:
         argv = (directory / "cmdline").read_bytes().removesuffix(b"\0").split(b"\0")
@@ -63,8 +70,11 @@ def process_info(pid):
 def port_blocks(port=None):
     listeners = [row for row in list_listeners() if port is None or row.port == port]
     if not listeners:
-        return [[text(tr("No TCP listeners", "没有 TCP 监听") + (f" · {port}" if port else ""), MUTED_STYLE)]]
+        label = tr("No visible TCP listeners", "没有可见的 TCP 监听") if sys.platform == "darwin" else tr("No TCP listeners", "没有 TCP 监听")
+        return [[text(label + (f" · {port}" if port else ""), MUTED_STYLE)]]
     blocks, processes = [], {}
+    if sys.platform == "darwin":
+        blocks.append([text(tr("Only listeners visible to this user are shown.", "仅显示当前用户有权限查看的监听端口。"), MUTED_STYLE)])
     for row in listeners:
         lines = [text(f"⛓  {row.address}", "bold #63c5f8")]
         if not row.owners:

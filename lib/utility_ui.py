@@ -8,12 +8,12 @@ import subprocess
 
 from gpu_ui import MUTED_STYLE, tr
 from inspect_ui import Document, text
+from host_runtime import process_cwd
 
 
 def key_notes(binary, socket):
     launcher = os.environ.get("PIMUX_LAUNCHER", str(Path(__file__).resolve().parents[1] / "bin/pimux"))
-    result = subprocess.run(["bash", "-c", 'source "$1"; PIMUX_COMMAND=("$2" -S "$3"); shortcut_help',
-                             "help", launcher, binary, socket], capture_output=True, text=True, timeout=3)
+    result = subprocess.run([launcher, "__key-notes", binary, socket], capture_output=True, text=True, timeout=3)
     if result.returncode:
         raise RuntimeError(tr("Could not read keyboard help.", "无法读取快捷键帮助。"))
     return [line.split("\t", 1) for line in result.stdout.splitlines() if "\t" in line]
@@ -54,7 +54,7 @@ def help_blocks(binary, socket):
                  "可点击入口，也可按 e / o / g / t / i / ?；q 返回原会话选择。")),
          text(tr("pimux env / proxy / gpu / ports / ip / help remain optional shortcuts.",
                  "pimux env / proxy / gpu / ports / ip / help 都是可选的快捷入口。"), MUTED_STYLE),
-         text("pimux update    " + tr("Update PiMux; also available in Ctrl-a h", "更新 PiMux，也可通过 Ctrl-a h 菜单操作"))],
+         text("pimux update    " + tr("Linux release update; Mac: follow the installation source", "Linux 更新发布版；Mac 请按安装来源更新"))],
         [text(tr("Inside environment settings", "环境变量页内"), "bold #63c5f8"),
          text(tr("Enter views/edits · n adds · Space enables/disables · i restores inheritance.",
                  "Enter 查看／修改 · n 新增 · Space 启停 · i 恢复继承。")),
@@ -92,7 +92,7 @@ def path_blocks(binary, socket, pane):
     if result.returncode:
         raise RuntimeError(tr("The pane has closed.", "分屏已经关闭。"))
     try:
-        path = str(Path(f"/proc/{int(result.stdout.strip())}/cwd").readlink())
+        path = process_cwd(result.stdout.strip())
     except (OSError, ValueError):
         raise RuntimeError(tr("The working directory is not visible.", "当前工作目录不可见。")) from None
     return [[text(path, "#63c5f8")], [text(tr("Return, then press Ctrl-a y to copy this path.",

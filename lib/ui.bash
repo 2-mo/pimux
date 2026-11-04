@@ -10,7 +10,7 @@ declare -A PIMUX_EN=(
     ['关闭当前分屏及其中的程序？[y/N]']='Close this pane and its programs? [y/N]'
     ['关闭当前分屏；结束其中的程序，需确认']='Close the current pane and its programs, with confirmation'
     ['Enter / q / Esc 返回。']='Enter / q / Esc to return.'
-    ['界面的运行环境未就绪，请运行 pimux update 完成安装。']='The view environment is missing. Run pimux update to complete installation.'
+    ['界面运行环境未就绪。Linux 请运行 pimux update；Mac 请按安装来源重新安装。']='View runtime missing. Linux: run pimux update. Mac: reinstall through the original installation source.'
     ['端口查看']='Listening ports'
     ['IP 与网络']='IP & network'
     [' / 搜索  Enter 进入  d 预览  q 返回']=' / search  Enter open  d preview  q back'
@@ -219,7 +219,7 @@ save_language() (
     case $value in en|zh) ;; *) return 2 ;; esac
     mkdir -p -- "$(dirname -- "$file")"
     exec 9>"${file}.lock"
-    flock 9
+    pimux_lock 9
     temporary=$(mktemp "${file}.new.XXXXXX")
     printf '%s\n' "$value" > "$temporary"
     mv -- "$temporary" "$file"

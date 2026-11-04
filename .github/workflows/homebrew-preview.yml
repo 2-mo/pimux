@@ -1,0 +1,85 @@
+name: Homebrew source preview
+on:
+  pull_request:
+    paths:
+      - 'packaging/homebrew/**'
+      - 'bin/pimux'
+      - 'lib/**'
+      - 'config/**'
+      - 'uv.lock'
+      - 'tests/test_package_layout.py'
+      - 'tests/test_homebrew_packaging.py'
+      - '.github/workflows/homebrew-preview.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: homebrew-preview-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  package-contract:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - run: bash scripts/check.sh tests/test_package_layout.py tests/test_homebrew_packaging.py -q
+  macos-homebrew:
+    # Homebrew currently requires macOS 15+ for supported bottled dependencies.
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+      HOMEBREW_NO_ANALYTICS: '1'
+      HOMEBREW_NO_INSTALL_CLEANUP: '1'
+      HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Prepare dependencies on this disposable hosted runner only
+        run: |
+          brew update
+          brew install bash tmux ncurses python@3.14
+          mkdir -p "$RUNNER_TEMP/pimux-package-evidence"
+          {
+            git rev-parse HEAD
+            sw_vers
+            uname -m
+            brew --version
+            "$(brew --prefix bash)/bin/bash" --version
+            "$(brew --prefix tmux)/bin/tmux" -V
+            "$(brew --prefix python@3.14)/bin/python3.14" --version
+          } > "$RUNNER_TEMP/pimux-package-evidence/environment.txt"
+      - name: Install and test an exact local source snapshot
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/pimux-package-evidence"
+          archive="$evidence/pimux-source.tar.gz"
+          source_commit=$(git rev-parse HEAD)
+          git archive --format=tar --prefix=pimux-source/ HEAD | gzip -n > "$archive"
+          tap_path="$(brew --repository)/Library/Taps/pimux-ci/homebrew-preview"
+          mkdir -p "$tap_path/Formula"
+          git init -q "$tap_path"
+          python="$(brew --prefix python@3.14)/bin/python3.14"
+          "$python" packaging/homebrew/render.py "$archive" "$source_commit" \
+            "$tap_path/Formula/pimux-preview.rb" --revision 1 > "$evidence/formula-r1.json"
+          # Trust only this generated formula on the disposable runner, not the entire tap.
+          brew trust --formula pimux-ci/preview/pimux-preview
+          brew audit --strict --formula pimux-ci/preview/pimux-preview 2>&1 | tee "$evidence/audit-r1.log"
+          brew install --formula pimux-ci/preview/pimux-preview 2>&1 | tee "$evidence/install-r1.log"
+          brew test pimux-ci/preview/pimux-preview 2>&1 | tee "$evidence/test-r1.log"
+          "$python" packaging/homebrew/render.py "$archive" "$source_commit" \
+            "$tap_path/Formula/pimux-preview.rb" --revision 2 > "$evidence/formula-r2.json"
+          brew upgrade --formula pimux-ci/preview/pimux-preview 2>&1 | tee "$evidence/upgrade-r2.log"
+          brew cleanup --prune=all pimux-preview 2>&1 | tee "$evidence/cleanup-r1.log"
+          brew audit --strict --formula pimux-ci/preview/pimux-preview 2>&1 | tee "$evidence/audit-r2.log"
+          brew test pimux-ci/preview/pimux-preview 2>&1 | tee "$evidence/test-r2.log"
+          brew uninstall --formula pimux-ci/preview/pimux-preview 2>&1 | tee "$evidence/uninstall.log"
+          cp "$tap_path/Formula/pimux-preview.rb" "$evidence/"
+          shasum -a 256 "$archive" "$evidence/pimux-preview.rb" > "$evidence/SHA256SUMS"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: homebrew-preview-${{ github.sha }}
+          path: ${{ runner.temp }}/pimux-package-evidence

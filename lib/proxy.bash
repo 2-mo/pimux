@@ -1,4 +1,5 @@
 # pimux-managed: proxy preferences and integration for PiMux's Bash shells.
+source "$(dirname -- "${BASH_SOURCE[0]}")/runtime.bash"
 pimux_proxy_read() {
     local file=${PIMUX_PROXY_FILE:-$HOME/.config/pimux/proxy} mode url
     PIMUX_PROXY_MODE=inherit
@@ -32,6 +33,7 @@ pimux_proxy_mask_url() {
 
 pimux_proxy_save() (
     local mode=$1 url=$2 file=${PIMUX_PROXY_FILE:-$HOME/.config/pimux/proxy} temporary
+    case $mode in on|off|inherit) ;; *) return 2 ;; esac
     if [[ -n $url ]] && ! pimux_proxy_valid_url "$url"; then
         printf '%s\n' "$(tr_ui '代理地址需以 http://、https://、socks5:// 或 socks5h:// 开头，且不能含空白。')" >&2
         return 2
@@ -43,7 +45,7 @@ pimux_proxy_save() (
     umask 077
     mkdir -p -- "$(dirname -- "$file")"
     exec 9>"${file}.lock"
-    flock 9
+    pimux_lock 9
     temporary=$(mktemp "${file}.new.XXXXXX")
     trap 'rm -f -- "$temporary"' EXIT
     printf '%s\n%s\n' "$mode" "$url" > "$temporary"
@@ -116,7 +118,7 @@ pimux_report_proxy() {
     done
     signature="${TMUX%%,*}|$TMUX_PANE|$state"
     [[ ${PIMUX_PROXY_REPORTED:-} != "$signature" ]] || return 0
-    if command tmux -S "${TMUX%%,*}" set-option -p -t "$TMUX_PANE" @pimux_proxy_status "$state" 2>/dev/null; then
+    if command "${PIMUX_TMUX:-tmux}" -S "${TMUX%%,*}" set-option -p -t "$TMUX_PANE" @pimux_proxy_status "$state" 2>/dev/null; then
         PIMUX_PROXY_REPORTED=$signature
     fi
     return 0
