@@ -196,15 +196,17 @@ read_ui_key() {
     fi
 }
 
+# Update only the already selected server; do not discover additional runtimes.
+update_server_language() {
+    local sid launcher
+    while IFS=$'\t' read -r sid launcher; do
+        [[ -n $sid && -n $launcher ]] || continue
+        tmux set-option -t "$sid" @pimux_language "$PIMUX_LANGUAGE"
+    done < <(tmux list-sessions -F $'#{session_id}\t#{@pimux_launcher}' 2>/dev/null || true)
+}
+
 # Refresh only sessions marked as pimux, preserving other users of a shared server.
 refresh_language() (
-    local sid launcher
-    update_server_language() {
-        while IFS=$'\t' read -r sid launcher; do
-            [[ -n $sid && -n $launcher ]] || continue
-            tmux set-option -t "$sid" @pimux_language "$PIMUX_LANGUAGE"
-        done < <(tmux list-sessions -F $'#{session_id}\t#{@pimux_launcher}' 2>/dev/null || true)
-    }
     update_server_language
     if [[ -f ${PIMUX_RUNTIME_FILE:-$HOME/.config/pimux/runtime.conf} ]]; then
         configure_runtime; update_server_language

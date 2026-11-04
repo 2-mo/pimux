@@ -10,6 +10,7 @@ PIMUX_ROOT=$(dirname -- "$(dirname -- "$PIMUX_LAUNCHER")")
 PIMUX_UI_DIR="$PIMUX_ROOT/lib"
 [[ -f $PIMUX_UI_DIR/ui.bash ]] || PIMUX_UI_DIR="$HOME/.config/pimux"
 source "$PIMUX_UI_DIR/ui.bash"
+source "$PIMUX_UI_DIR/tmux_compat.bash"
 
 tmux() {
     if (( ${#PIMUX_COMMAND[@]} )); then
@@ -160,18 +161,21 @@ reload_config() {
     refresh_session_themes
 }
 
+# Update only PIMUX_COMMAND's target, including its session-local overrides.
+update_server_theme() {
+    local sid launcher
+    # Reload bindings on owned servers; shared servers get scoped overrides.
+    if [[ $PIMUX_SHARED_SERVER != true ]] && tmux list-sessions >/dev/null 2>&1; then
+        tmux source-file "$(theme_file)"
+    fi
+    while IFS=$'\t' read -r sid launcher; do
+        [[ -n $sid && -n $launcher ]] || continue
+        apply_session_theme "$sid"
+    done < <(tmux list-sessions -F $'#{session_id}\t#{@pimux_launcher}' 2>/dev/null || true)
+}
+
 refresh_session_themes() (
-    local sid launcher initial_socket=$PIMUX_TARGET_SOCKET primary_socket
-    update_server_theme() {
-        # Reload bindings on owned servers; shared servers get scoped overrides.
-        if [[ $PIMUX_SHARED_SERVER != true ]] && tmux list-sessions >/dev/null 2>&1; then
-            tmux source-file "$(theme_file)"
-        fi
-        while IFS=$'\t' read -r sid launcher; do
-            [[ -n $sid && -n $launcher ]] || continue
-            apply_session_theme "$sid"
-        done < <(tmux list-sessions -F $'#{session_id}\t#{@pimux_launcher}' 2>/dev/null || true)
-    }
+    local initial_socket=$PIMUX_TARGET_SOCKET primary_socket
     update_server_theme
     configure_runtime
     primary_socket=$PIMUX_TARGET_SOCKET
@@ -478,8 +482,7 @@ doctor() {
     if [[ -n $PIMUX_TARGET_SOCKET ]]; then
         printf_ui '程序：%s\nsocket：%s\n' "${PIMUX_COMMAND[0]}" "$PIMUX_TARGET_SOCKET"
     fi
-    if [[ $version =~ ([0-9]+)\.([0-9]+) ]] && \
-       (( BASH_REMATCH[1] > 3 || (BASH_REMATCH[1] == 3 && BASH_REMATCH[2] >= 2) )); then
+    if pimux_tmux_version_supported "$version"; then
         printf_ui '版本：满足 pimux 配置要求（>= 3.2）\n'
     else
         printf_ui '版本：配置要求 tmux >= 3.2\n'
