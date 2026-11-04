@@ -1,5 +1,6 @@
 """Real enrollment is confined to disposable SSH fixture containers."""
 import asyncio
+import errno
 import json
 import os
 from pathlib import Path
@@ -18,6 +19,45 @@ import ssh_discovery
 from tests.test_hosts_ssh import endpoints
 
 ROOT=Path(__file__).resolve().parents[1]
+
+
+def reap_until_deadline(pid,deadline):
+    """PTY EOF can precede child exit; keep the original operation deadline."""
+    while True:
+        ended,status=os.waitpid(pid,os.WNOHANG)
+        if ended: return ended,status
+        remaining=deadline-time.monotonic()
+        if remaining<=0: return ended,status
+        time.sleep(min(.01,remaining))
+
+
+@pytest.mark.parametrize('status',[0,7<<8,signal.SIGTERM])
+def test_reap_after_terminal_eof_preserves_delayed_child_status(monkeypatch,status):
+    now=[0.0];calls=[]
+    def waitpid(pid,options):
+        calls.append((pid,options))
+        return (0,0) if len(calls)<3 else (pid,status)
+    monkeypatch.setattr(os,'waitpid',waitpid)
+    monkeypatch.setattr(time,'monotonic',lambda:now[0])
+    monkeypatch.setattr(time,'sleep',lambda delay:now.__setitem__(0,now[0]+delay))
+    assert reap_until_deadline(123,.025)==(123,status)
+    assert calls==[(123,os.WNOHANG)]*3
+    assert now[0]==pytest.approx(.02)
+
+
+def test_reap_after_terminal_eof_does_not_extend_deadline(monkeypatch):
+    now=[0.0];sleeps=[]
+    def sleep(delay):
+        sleeps.append(delay);now[0]+=delay
+    monkeypatch.setattr(os,'waitpid',lambda pid,options:(0,0))
+    monkeypatch.setattr(time,'monotonic',lambda:now[0])
+    monkeypatch.setattr(time,'sleep',sleep)
+    assert reap_until_deadline(123,.025)==(0,0)
+    assert now[0]==pytest.approx(.025)
+    assert sleeps==pytest.approx([.01,.01,.005])
+    sleeps.clear()
+    assert reap_until_deadline(123,.025)==(0,0)
+    assert not sleeps
 
 
 @pytest.fixture
@@ -140,7 +180,10 @@ def test_terminal_password_is_masked_and_one_confirmation_installs_and_verifies(
         while time.monotonic()<deadline:
             if select.select([terminal],[],[],.1)[0]:
                 try: chunk=os.read(terminal,65536)
-                except OSError: break
+                except OSError as error:
+                    if error.errno!=errno.EIO: raise
+                    break
+                if not chunk: break
                 captured.extend(chunk)
                 current=bytes(captured[seen:]).lower()
                 if b'enter passphrase' in current or b'enter same passphrase' in current:
@@ -153,7 +196,7 @@ def test_terminal_password_is_masked_and_one_confirmation_installs_and_verifies(
             ended,status=os.waitpid(pid,os.WNOHANG)
             if ended: pid=None;break
         if pid is not None:
-            ended,status=os.waitpid(pid,os.WNOHANG)
+            ended,status=reap_until_deadline(pid,deadline)
             if ended: pid=None
         assert secret.encode() not in captured
         if phrase: assert phrase.encode() not in captured

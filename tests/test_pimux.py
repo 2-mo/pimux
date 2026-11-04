@@ -258,8 +258,9 @@ def server(tmp_path):
     Path(env["PIMUX_LANGUAGE_FILE"]).write_text("zh\n")
 
     def tmux(*args):
-        return subprocess.run(["tmux", *args], env=env, capture_output=True,
-                              text=True, check=True).stdout.strip()
+        result = subprocess.run(["tmux", *args], env=env, capture_output=True, text=True)
+        assert result.returncode == 0, f"tmux {args!r}: {result.stderr}"
+        return result.stdout.strip()
 
     tmux("-f", "/dev/null", "new-session", "-d", "-s", "seed", "-c", str(tmp_path))
     try:
@@ -2271,7 +2272,19 @@ def test_manager_targets_exact_window_and_pane_with_control_characters(tmp_path,
     start, wait_for = preview_terminals
     cwd = tmp_path / 'prefix\nunique-tail\\研究  '
     cwd.mkdir()
-    window, pane = tmux('new-window', '-d', '-t', 'seed', '-n', 'wanted\twindow\nname', '-c', str(cwd),
+    window_name = 'wanted\twindow\nname'
+    version = tuple(map(int, re.search(r'(\d+)\.(\d+)', tmux('-V')).groups()))
+    if version >= (3, 8):
+        # tmux 3.8 cmd-new-window/check_name rejects control bytes. Verify that
+        # native boundary instead of demanding a window tmux cannot create.
+        # Linux 3.4 still exercises control bytes in both the name and cwd.
+        original_windows = tmux('list-windows', '-a', '-F', '#{window_id}')
+        rejected = subprocess.run(['tmux', 'new-window', '-d', '-t', 'seed', '-n', window_name],
+                                  env=env, capture_output=True, text=True)
+        assert rejected.returncode == 1 and 'invalid window name:' in rejected.stderr, rejected.stderr
+        assert tmux('list-windows', '-a', '-F', '#{window_id}') == original_windows
+        window_name = 'wanted window name'
+    window, pane = tmux('new-window', '-d', '-t', 'seed', '-n', window_name, '-c', str(cwd),
                         '-P', '-F', '#{window_id} #{pane_id}', 'sleep', '60').split()
     session = tmux('display-message', '-p', '-t', pane, '#{session_id}')
     assert native_pane_field(env, pane, 'pane_current_path') == str(cwd)

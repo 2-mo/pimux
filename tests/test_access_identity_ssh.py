@@ -1,5 +1,6 @@
 """Identity conflicts on real disposable SSH servers; never real user servers."""
 import asyncio
+import errno
 import json
 import os
 from pathlib import Path
@@ -18,7 +19,7 @@ import access_setup
 import access_transport
 import hosts
 import ssh_discovery
-from tests.test_access_setup_ssh import authorization
+from tests.test_access_setup_ssh import authorization, reap_until_deadline
 from tests.test_hosts_ssh import endpoints
 
 
@@ -117,7 +118,10 @@ print(json.dumps(hosts.run_operation(hosts.fetch_host(host,tty=os.ttyname(0)))),
         while time.monotonic()<deadline:
             if select.select([terminal],[],[],.1)[0]:
                 try: chunk=os.read(terminal,65536)
-                except OSError: break
+                except OSError as error:
+                    if error.errno!=errno.EIO: raise
+                    break
+                if not chunk: break
                 captured.extend(chunk)
                 if b'passphrase' in bytes(captured[seen:]).lower() and b':' in bytes(captured[seen:]):
                     prompts+=1;assert prompts<=2
@@ -125,7 +129,7 @@ print(json.dumps(hosts.run_operation(hosts.fetch_host(host,tty=os.ttyname(0)))),
             ended,status=os.waitpid(pid,os.WNOHANG)
             if ended: pid=None;break
         if pid is not None:
-            ended,status=os.waitpid(pid,os.WNOHANG)
+            ended,status=reap_until_deadline(pid,deadline)
             if ended: pid=None
         assert pid is None,bytes(captured).decode(errors='replace')
         assert phrase.encode() not in captured and prompts==2
