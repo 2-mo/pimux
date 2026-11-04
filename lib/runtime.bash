@@ -1,13 +1,23 @@
 # pimux-managed: Bash 3.2-readable bootstrap and platform boundary.
 PIMUX_RUNTIME_DIR=$(cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 
+pimux_bash_requirement() {
+    if [[ $OSTYPE == darwin* ]]; then printf '5.1\n'
+    else printf '4.2\n'; fi
+}
+
 pimux_valid_bash() {
+    local required
+    required=$(pimux_bash_requirement)
     [[ $1 == /* && -x $1 && $1 != *$'\n'* ]] &&
-        "$1" --noprofile --norc -c '(( BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 1) ))' >/dev/null 2>&1
+        "$1" --noprofile --norc -c '(( BASH_VERSINFO[0] > $1 || (BASH_VERSINFO[0] == $1 && BASH_VERSINFO[1] >= $2) ))' \
+            pimux-runtime "${required%%.*}" "${required#*.}" >/dev/null 2>&1
 }
 
 pimux_bootstrap() {
     local script=$1 candidate=${PIMUX_BASH:-} marker='' extra='' file=${PIMUX_SHELL_FILE:-$HOME/.config/pimux/shell.conf}
+    local required
+    required=$(pimux_bash_requirement)
     shift
     if [[ -z $candidate && -f $file ]]; then
         local invalid=false
@@ -20,7 +30,7 @@ pimux_bootstrap() {
     fi
     if [[ -n $candidate ]]; then
         pimux_valid_bash "$candidate" || {
-            printf 'PiMux requires Bash >= 5.1; configured executable is unavailable or too old: %s\n' "$candidate" >&2
+            printf 'PiMux requires Bash >= %s; configured executable is unavailable or too old: %s\n' "$required" "$candidate" >&2
             return 1
         }
     else
@@ -29,7 +39,7 @@ pimux_bootstrap() {
             candidate=''
         done
         [[ -n $candidate ]] || {
-            printf 'PiMux requires Bash >= 5.1. Set PIMUX_BASH to an installed modern Bash executable.\n' >&2
+            printf 'PiMux requires Bash >= %s. Set PIMUX_BASH to an installed modern Bash executable.\n' "$required" >&2
             return 1
         }
     fi
@@ -37,8 +47,8 @@ pimux_bootstrap() {
     if [[ ! $BASH -ef $candidate && $script == "$0" ]]; then
         exec "$candidate" "$script" "$@"
     fi
-    if (( BASH_VERSINFO[0] < 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] < 1) )); then
-        printf 'Source PiMux with Bash >= 5.1: %s\n' "$candidate" >&2
+    if (( BASH_VERSINFO[0] < ${required%%.*} || (BASH_VERSINFO[0] == ${required%%.*} && BASH_VERSINFO[1] < ${required#*.}) )); then
+        printf 'Source PiMux with Bash >= %s: %s\n' "$required" "$candidate" >&2
         return 1
     fi
     # Preserve the user's tool precedence when PATH already resolves this Bash.

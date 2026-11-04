@@ -4,7 +4,9 @@ The Mac direction is one Mac managing several servers: host identity, connection
 
 ## Native local source preview
 
-Requirements: macOS, Bash >=5.1, tmux >=3.2, Python >=3.10, uv, curl and `tmux-256color` terminfo. Apple Bash 3.2 can read the bootstrap and select modern Bash before loading application libraries. Bash 5.1 is required for `PROMPT_COMMAND` arrays as well as associative arrays and `mapfile`.
+Mac preview requirements: Bash >=5.1, tmux >=3.2, Python >=3.10, uv, curl and `tmux-256color` terminfo. Apple Bash 3.2 can read the bootstrap and select modern Bash before loading application libraries. The Mac floor includes `PROMPT_COMMAND` array execution. Those hooks already existed before this change; they are not a reason to raise Linux's launcher minimum. Linux retains its existing Bash >=4.2 guard, and its complete interaction gate continues to use Ubuntu 24.04's Bash 5.2. This milestone does not newly certify every legacy Bash prompt behavior.
+
+The pinned Bash 4.2.53 container passes the new Linux bootstrap and is rejected by the Mac version policy. A separate full-launch probe fails while parsing a translated associative-array key in `lib/ui.bash`; the exact unchanged PR #3 file reproduces that failure. The CI legacy check therefore covers only the new runtime guard, not a claim that the complete application works on Bash 4.2. Use the standard Bash 5.2 Linux environment for the verified interaction behavior.
 
 Prefer existing dependencies. The optional developer build installs pinned upstream Bash 5.3.20 and tmux 3.8, with static libevent, utf8proc and jemalloc, entirely under a new removable directory:
 
@@ -45,6 +47,8 @@ Ports include only processes visible to the current user; empty selection differ
 Missing NVIDIA tools produce explicit unavailable telemetry, not a claim that the Mac has no GPU. Apple GPU metrics are unimplemented. Proxy saving and shell reports use the selected runtime. Legacy foreground-environment inference still requires Linux `/proc`; Mac reports unknown rather than inspecting credentials or restarting processes.
 
 `pimux tmux` execs the configured command array, preserving native arguments, streams and cancellation. This common fix also exists in Linux draft PR #1; this independent branch does not modify that PR.
+
+The process-directory adapter in `window_details.py` still inherits the base branch's preference for the parent pane process over a foreground program's directory. Linux draft PR #2 fixes that precedence and multiline metadata separately. When combining the branches, retain #2's tmux foreground-directory preference and use this native adapter only as its missing-directory fallback; do not replace the #2 fix. This preview does not claim that foreground-directory issue is resolved.
 
 ## Verification and limits
 

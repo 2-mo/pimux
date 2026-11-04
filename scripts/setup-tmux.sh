@@ -143,7 +143,7 @@ install_dependencies() {
     fi
     [[ $missing == true ]] || return 0
     command -v apt-get >/dev/null 2>&1 || {
-        printf 'Install Bash 5.1+, tmux 3.2+, ncurses terminfo, util-linux, coreutils, iproute2 and curl, then rerun this installer.\n' >&2
+        printf 'Install Bash 4.2+, tmux 3.2+, ncurses terminfo, util-linux, coreutils, iproute2 and curl, then rerun this installer.\n' >&2
         return 1
     }
     local -a admin=()

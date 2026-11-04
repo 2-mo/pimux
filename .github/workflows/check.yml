@@ -17,6 +17,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: Check terminal behavior in the shared environment
         run: bash scripts/check.sh tests/test_pimux.py tests/test_gpu.py tests/test_views.py tests/test_environment.py tests/test_macos.py tests/test_host_runtime.py tests/test_native_terminal.py -q
+      - name: Keep the Linux bootstrap compatible with its existing Bash minimum
+        run: >-
+          docker run --rm --network none --read-only --tmpfs /tmp
+          --env HOME=/tmp/pimux-legacy-home --volume "$PWD:/source:ro" --workdir /source
+          bash:4.2@sha256:75a8dcd5c2a865e69116225dc486e2dbdd2dda1434759fa7f1fc50c72eeadbea
+          bash scripts/check-bash-compat.sh
       - name: Build release archive
         run: bash scripts/package.sh
   macos-terminal:
