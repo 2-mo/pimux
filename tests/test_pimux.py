@@ -1991,12 +1991,13 @@ def test_window_preview_uses_real_foreground_cwd(tmp_path, server, preview_termi
     assert tmux('display-message', '-p', '-t', pane, '#{pane_pid}:#{pane_dead}') == shell_pid + ':0'
 
 
-def test_manager_search_targets_pane_after_newline_in_cwd(tmp_path, server, preview_terminals):
+@pytest.mark.parametrize('search', [True, False], ids=['search', 'expanded-window'])
+def test_manager_targets_exact_window_and_pane_with_control_characters(tmp_path, server, preview_terminals, search):
     env, tmux = server
     start, wait_for = preview_terminals
     cwd = tmp_path / 'prefix\nunique-tail\\研究  '
     cwd.mkdir()
-    window, pane = tmux('new-window', '-d', '-t', 'seed', '-n', 'wanted-window', '-c', str(cwd),
+    window, pane = tmux('new-window', '-d', '-t', 'seed', '-n', 'wanted\twindow\nname', '-c', str(cwd),
                         '-P', '-F', '#{window_id} #{pane_id}', 'sleep', '60').split()
     session = tmux('display-message', '-p', '-t', pane, '#{session_id}')
     assert native_pane_field(env, pane, 'pane_current_path') == str(cwd)
@@ -2010,15 +2011,20 @@ manager
     process, master, _, output = start(['bash', '-c', script, 'test', str(SOURCE / 'bin/pimux')], env)
     wait_for(lambda: '会话管理'.encode() in output)
     output.clear()
-    os.write(master, b'/unique-tail')
+    if search:
+        os.write(master, b'/unique-tail')
 
-    def query_is_rendered():
-        lines = bytes(output).rsplit(b'\x1b[H\x1b[2J', 1)[-1].splitlines()
-        return len(lines) > 1 and '会话管理'.encode() in lines[0] and b'unique-tail' in lines[1]
+        def query_is_rendered():
+            lines = bytes(output).rsplit(b'\x1b[H\x1b[2J', 1)[-1].splitlines()
+            return len(lines) > 1 and '会话管理'.encode() in lines[0] and b'unique-tail' in lines[1]
 
-    wait_for(query_is_rendered)
+        wait_for(query_is_rendered)
+    else:
+        os.write(master, b'\x1b[C')
+        wait_for(lambda: b'wanted window name' in output)
+        os.write(master, b'\x1b[B\x1b[B')
     os.write(master, b'\r')
-    wait_for(lambda: f'OPEN:{session}:{window}:{pane}'.encode() in output)
+    wait_for(lambda: f'OPEN:{session}:{window}:{pane if search else ""}'.encode() in output)
     assert process.wait(timeout=5) == 0
     assert tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid}') == before
 

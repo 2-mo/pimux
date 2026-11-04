@@ -418,14 +418,20 @@ def preview_tmux_stub(monkeypatch, panes):
                 assert '#{' not in row, 'Unsupported stub format: ' + format_string
                 rows.append(row)
             output = ''.join(row + '\n' for row in rows)
+        if kwargs.get('text') or kwargs.get('encoding') or kwargs.get('errors'):
+            output = output.replace('\r\n', '\n').replace('\r', '\n')
+        else:
+            output = output.encode('utf-8')
         return subprocess.CompletedProcess(command, 0, output, '')
 
     monkeypatch.setattr(window_details.subprocess, 'run', run)
     monkeypatch.setenv('PIMUX_LANGUAGE', 'en')
 
 
-@pytest.mark.parametrize('cwd', ['/work/tab\tbranch\\研究  ', '/work/line\nbranch\\研究  '],
-                         ids=['tab', 'newline'])
+@pytest.mark.parametrize('cwd', ['/work/tab\tbranch\\研究  ', '/work/line\nbranch\\研究  ',
+                                '/work/carriage\rreturn', '/work/trailing\n\n', '/work/trailing\r\n',
+                                '/work/分隔\u2028branch '],
+                         ids=['tab', 'newline', 'carriage-return', 'trailing-newlines', 'trailing-crlf', 'unicode-separator'])
 @pytest.mark.parametrize('dead', [False, True], ids=['live', 'exited'])
 def test_window_preview_preserves_path_boundaries_and_status(monkeypatch, cwd, dead):
     import window_details
@@ -465,3 +471,17 @@ def test_window_preview_prefers_native_foreground_cwd_over_shell_proc(monkeypatc
     monkeypatch.setattr(window_details.Path, 'readlink', lambda path: Path('/work/parent-shell'))
     blocks = window_details.window_blocks('tmux', '/test/socket', '@1')
     assert blocks[0][2].plain == 'Cwd: ' + native
+
+
+def test_window_preview_preserves_multiline_program_name(monkeypatch):
+    import window_details
+
+    program = 'py\tworker\nname'
+    preview_tmux_stub(monkeypatch, [dict(
+        pane_id='%1', pane_pid='101', pane_dead='0', pane_dead_status='',
+        pane_current_command=program, pane_current_path='/work/child', **{'@pimux_command_status': '7'},
+    )])
+    blocks = window_details.window_blocks('tmux', '/test/socket', '@1')
+    assert blocks[0][0].plain == text('%1 · PID 101 · ' + program).plain
+    assert blocks[0][1].plain == 'Process alive · last command exit 7'
+    assert blocks[0][2].plain == 'Cwd: /work/child'
