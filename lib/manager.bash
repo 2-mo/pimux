@@ -63,10 +63,11 @@ manager() (
     }
     manager_windows() {
         local target=$1 wid title program path
+        # Sanitize C0/DEL before emitting records; ':' in POSIX classes is a tmux modifier separator.
         while IFS=$'\t' read -r wid title program path; do
             roots+=("$target"); windows+=("$wid"); titles+=("$title")
             programs+=("$program"); paths+=("$path"); counts+=(''); panes+=(''); pane_indices+=('')
-        done < <(tmux list-windows -t "$target" -F $'#{window_id}\t#{window_index}:#{window_name}\t[#{pane_current_command}]\t#{pane_current_path}')
+        done < <(tmux list-windows -t "$target" -F $'#{window_id}\t#{window_index}:#{s/[\001-\037\177]/ /:window_name}\t[#{s/[\001-\037\177]/ /:pane_current_command}]\t#{s/[\001-\037\177]/ /:pane_current_path}')
     }
     manager_panes() {
         local target=$1 wid title pane index program path candidate
@@ -76,7 +77,7 @@ manager() (
             roots+=("$target"); windows+=("$wid"); titles+=("$title")
             panes+=("$pane"); pane_indices+=("$index")
             programs+=("$program"); paths+=("$path"); counts+=('')
-        done < <(tmux list-panes -s -t "$target" -F $'#{window_id}\t#{window_index}:#{window_name}\t#{pane_id}\t#{pane_index}\t[#{pane_current_command}]\t#{pane_current_path}')
+        done < <(tmux list-panes -s -t "$target" -F $'#{window_id}\t#{window_index}:#{s/[\001-\037\177]/ /:window_name}\t#{pane_id}\t#{pane_index}\t[#{s/[\001-\037\177]/ /:pane_current_command}]\t#{s/[\001-\037\177]/ /:pane_current_path}')
     }
     manager_navigation() {
         nav_visible=()

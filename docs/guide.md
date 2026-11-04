@@ -101,6 +101,8 @@ Choose **Ports** in the main `pimux` interface to inspect local TCP listeners, o
 
 In the manager, select a window and press `d` to preview each pane's idle/alive state, working directory and last 60 lines of output. Selecting a session previews its current window. Exit codes are available for exited panes retained by tmux. Previews refresh every three seconds; scroll with the wheel or arrows, and use `q` / Esc to return to the same manager selection. Inspection does not change another client's selected window or send keys to applications.
 
+Previews follow the foreground program's working directory reported by tmux. Tabs, line breaks and trailing spaces in pane metadata do not split records or hide exit status. The manager displays control characters as spaces so window lists and searches keep targeting the same IDs.
+
 ## Environment defaults
 
 Choose **Env** in the main `pimux` interface, use the optional `pimux env` shortcut, or choose **Environment** from `Ctrl-a h`. The list distinguishes saved defaults, disabled entries and inherited values; Network proxy stays at the top as a shortcut. Press `/` to search names, Enter to view/edit, `n` to add, Space to enable/disable and `i` to restore inheritance. While editing, Enter saves, Esc cancels and F2 reveals or masks the value.

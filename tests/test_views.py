@@ -394,3 +394,94 @@ def test_proxy_panel_falls_back_only_without_a_shell_report(monkeypatch):
     response[0] = "off\t12345\n"
     view.refresh()
     assert view.observed == "off" and not view.inferred and inspected == ["12345"]
+
+
+def preview_tmux_stub(monkeypatch, panes):
+    """Return requested native format fields without trimming or escaping paths."""
+    import window_details
+
+    def run(command, **kwargs):
+        args = command[3:]
+        if args[0] == 'capture-pane':
+            output = 'output from ' + args[args.index('-t') + 1] + '\n'
+        else:
+            assert args[0] in {'list-panes', 'display-message'}, command
+            selected = panes
+            if args[0] == 'display-message':
+                selected = [pane for pane in panes if pane['pane_id'] == args[args.index('-t') + 1]]
+            format_string = args[args.index('-F') + 1] if '-F' in args else args[-1]
+            rows = []
+            for pane in selected:
+                row = format_string
+                for name, value in pane.items():
+                    row = row.replace('#{' + name + '}', value)
+                assert '#{' not in row, 'Unsupported stub format: ' + format_string
+                rows.append(row)
+            output = ''.join(row + '\n' for row in rows)
+        if kwargs.get('text') or kwargs.get('encoding') or kwargs.get('errors'):
+            output = output.replace('\r\n', '\n').replace('\r', '\n')
+        else:
+            output = output.encode('utf-8')
+        return subprocess.CompletedProcess(command, 0, output, '')
+
+    monkeypatch.setattr(window_details.subprocess, 'run', run)
+    monkeypatch.setenv('PIMUX_LANGUAGE', 'en')
+
+
+@pytest.mark.parametrize('cwd', ['/work/tab\tbranch\\研究  ', '/work/line\nbranch\\研究  ',
+                                '/work/carriage\rreturn', '/work/trailing\n\n', '/work/trailing\r\n',
+                                '/work/分隔\u2028branch '],
+                         ids=['tab', 'newline', 'carriage-return', 'trailing-newlines', 'trailing-crlf', 'unicode-separator'])
+@pytest.mark.parametrize('dead', [False, True], ids=['live', 'exited'])
+def test_window_preview_preserves_path_boundaries_and_status(monkeypatch, cwd, dead):
+    import window_details
+
+    panes = [
+        dict(pane_id='%1', pane_pid='101', pane_dead=str(int(dead)), pane_dead_status='7' if dead else '',
+             pane_current_command='bash', pane_current_path=cwd, **{'@pimux_command_status': '7'}),
+        dict(pane_id='%2', pane_pid='102', pane_dead='0', pane_dead_status='',
+             pane_current_command='python', pane_current_path='/work/second', **{'@pimux_command_status': '0'}),
+    ]
+    preview_tmux_stub(monkeypatch, panes)
+
+    def no_proc(path):
+        raise FileNotFoundError(str(path))
+
+    # An unreadable/dead process must not mask corruption of native metadata.
+    monkeypatch.setattr(window_details.Path, 'readlink', no_proc)
+    blocks = window_details.window_blocks('tmux', '/test/socket', '@1')
+    assert len(blocks) == 2
+    assert blocks[0][0].plain == '%1 · PID 101 · bash'
+    assert blocks[0][1].plain == ('Exited · exit 7' if dead else 'Shell idle · last command exit 7')
+    assert blocks[0][2].plain == text('Cwd: ' + cwd).plain
+    assert blocks[0][-1].plain == 'output from %1'
+    assert blocks[1][0].plain == '%2 · PID 102 · python'
+    assert blocks[1][2].plain == 'Cwd: /work/second'
+    assert blocks[1][-1].plain == 'output from %2'
+
+
+def test_window_preview_prefers_native_foreground_cwd_over_shell_proc(monkeypatch):
+    import window_details
+
+    native = '/work/foreground\\研究  '
+    preview_tmux_stub(monkeypatch, [dict(
+        pane_id='%1', pane_pid='101', pane_dead='0', pane_dead_status='',
+        pane_current_command='python', pane_current_path=native, **{'@pimux_command_status': '0'},
+    )])
+    monkeypatch.setattr(window_details.Path, 'readlink', lambda path: Path('/work/parent-shell'))
+    blocks = window_details.window_blocks('tmux', '/test/socket', '@1')
+    assert blocks[0][2].plain == 'Cwd: ' + native
+
+
+def test_window_preview_preserves_multiline_program_name(monkeypatch):
+    import window_details
+
+    program = 'py\tworker\nname'
+    preview_tmux_stub(monkeypatch, [dict(
+        pane_id='%1', pane_pid='101', pane_dead='0', pane_dead_status='',
+        pane_current_command=program, pane_current_path='/work/child', **{'@pimux_command_status': '7'},
+    )])
+    blocks = window_details.window_blocks('tmux', '/test/socket', '@1')
+    assert blocks[0][0].plain == text('%1 · PID 101 · ' + program).plain
+    assert blocks[0][1].plain == 'Process alive · last command exit 7'
+    assert blocks[0][2].plain == 'Cwd: /work/child'

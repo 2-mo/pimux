@@ -12,19 +12,27 @@ from inspect_ui import Document, text
 def window_blocks(binary, socket, target):
     def tmux(*args):
         try:
-            result = subprocess.run([binary, "-S", socket, *args], capture_output=True, text=True, errors="replace", timeout=3)
+            result = subprocess.run([binary, "-S", socket, *args], capture_output=True, timeout=3)
         except subprocess.TimeoutExpired:
             raise RuntimeError(tr("Window query timed out.", "窗口查询超时。")) from None
         if result.returncode:
             raise RuntimeError(tr("Window or pane has closed or is unavailable.", "窗口或 pane 已关闭或不可见。"))
-        return result.stdout
+        # Text mode would normalize carriage returns that belong to metadata.
+        return result.stdout.decode("utf-8", errors="replace")
+
+    def field(pane, name):
+        # One value per query: only the final LF belongs to tmux's output record.
+        return tmux("display-message", "-p", "-t", pane, "#{" + name + "}").removesuffix("\n")
 
     fields = "\t".join("#{" + name + "}" for name in (
-        "pane_id", "pane_pid", "pane_dead", "pane_dead_status", "pane_current_command", "pane_current_path", "@pimux_command_status"))
+        "pane_id", "pane_pid", "pane_dead", "pane_dead_status"))
     rows = tmux("list-panes", "-t", target, "-F", fields)
     blocks = []
     for row in rows.splitlines():
-        pane, pid, dead, code, program, cwd, command_status = row.split("\t", 6)
+        pane, pid, dead, code = row.split("\t", 3)
+        program = field(pane, "pane_current_command")
+        cwd = field(pane, "pane_current_path")
+        command_status = field(pane, "@pimux_command_status")
         if dead == "1":
             state = tr("Exited", "已退出") + f" · exit {code or '?'}"
             style = "green" if code == "0" else "red"
@@ -32,13 +40,14 @@ def window_blocks(binary, socket, target):
             idle = program in {"bash", "zsh", "fish", "sh", "dash", "ksh"}
             state = tr("Shell idle", "shell 空闲") if idle else tr("Process alive", "进程存活")
             style = MUTED_STYLE if idle else "green"
-            if command_status.isdigit() and int(command_status):
+            if command_status.isascii() and command_status.isdigit() and command_status.strip("0"):
                 state += tr(" · last command exit ", " · 上次命令退出码 ") + command_status
                 style = "yellow"
-            try:
-                cwd = str(Path(f"/proc/{pid}/cwd").readlink())
-            except OSError:
-                pass
+            if not cwd:
+                try:
+                    cwd = str(Path(f"/proc/{pid}/cwd").readlink())
+                except OSError:
+                    pass
         lines = [text(f"{pane} · PID {pid} · {program}", "bold #63c5f8"), text(state, style),
                  text(tr("Cwd: ", "目录：") + (cwd or tr("unavailable", "不可见")), MUTED_STYLE),
                  text(tr("Recent output", "最近输出"), "bold")]
