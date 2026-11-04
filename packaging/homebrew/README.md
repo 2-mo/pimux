@@ -8,7 +8,7 @@ Python 3.11+ (the product's source-install minimum remains Python 3.10).
 The formula installs application files and a private Python environment beneath
 its own Cellar entry. It does not run `scripts/setup-tmux.sh`, copy files into HOME,
 edit shell startup files, reload servers or change an existing source installation.
-It declares Bash, tmux, ncurses and Python 3.14 dependencies. Python runtime wheels
+It declares macOS 15+, Bash, tmux, ncurses and Python 3.14 dependencies. The first beta targets Apple silicon; Intel is not validated. Hosted packaging runs on macOS 15, within [Homebrew’s supported OS range](https://docs.brew.sh/Installation), instead of forcing current dependencies to build on unsupported macOS 14. Python runtime wheels
 are universal, version/hash-pinned directly from `uv.lock`, and installed without
 dependency resolution or build-backend downloads. This is a third-party preview
 formula, not a submission to homebrew/core.

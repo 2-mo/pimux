@@ -25,7 +25,8 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - run: bash scripts/check.sh tests/test_package_layout.py tests/test_homebrew_packaging.py -q
   macos-homebrew:
-    runs-on: macos-14
+    # Homebrew currently requires macOS 15+ for supported bottled dependencies.
+    runs-on: macos-15
     timeout-minutes: 60
     env:
       HOMEBREW_NO_AUTO_UPDATE: '1'

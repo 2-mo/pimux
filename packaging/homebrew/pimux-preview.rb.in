@@ -10,7 +10,7 @@ class PimuxPreview < Formula
   revision @@REVISION@@
 
   depends_on "bash"
-  depends_on :macos
+  depends_on macos: :sequoia
   depends_on "ncurses"
   depends_on "python@3.14"
   depends_on "tmux"
