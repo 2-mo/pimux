@@ -761,7 +761,9 @@ main() {
         tmux)
             shift
             [[ $# -gt 0 ]] || { usage >&2; return 2; }
-            tmux "$@" ;;
+            # Keep signals as native as argv, streams and exit status: cancelling
+            # this CLI must not leave a child tmux client waiting in the background.
+            exec "${PIMUX_COMMAND[@]}" "$@" ;;
         doctor) [[ $# -le 2 ]] || { usage >&2; return 2; }; doctor "${2:-}" ;;
         reload) [[ $# == 1 ]] || { usage >&2; return 2; }; reload_config ;;
         gpu) [[ $# == 1 ]] || { usage >&2; return 2; }; require_terminal; load_gpu; python_view gpu ;;
