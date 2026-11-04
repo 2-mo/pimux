@@ -64,6 +64,8 @@ jobs:
           python="$(brew --prefix python@3.14)/bin/python3.14"
           "$python" packaging/homebrew/render.py "$archive" "$source_commit" \
             "$tap_path/Formula/pimux-preview.rb" --revision 1 > "$evidence/formula-r1.json"
+          # Trust only this generated formula on the disposable runner, not the entire tap.
+          brew trust --formula pimux-ci/preview/pimux-preview
           brew audit --strict --formula pimux-ci/preview/pimux-preview 2>&1 | tee "$evidence/audit-r1.log"
           brew install --formula pimux-ci/preview/pimux-preview 2>&1 | tee "$evidence/install-r1.log"
           brew test pimux-ci/preview/pimux-preview 2>&1 | tee "$evidence/test-r1.log"
