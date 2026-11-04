@@ -31,7 +31,7 @@ def test_installer_checks_external_tmux_before_installing_dependencies(tmp_path,
     for name in ("dirname", "readlink"):
         (tools / name).symlink_to(shutil.which(name))
     present = tools / "present"
-    present.write_text("#!/bin/sh\nexit 0\n")
+    present.write_text("#!/bin/sh\nprintf 'tmux 3.4\\n'\n")
     present.chmod(0o755)
     dependencies = ["infocmp", "flock", "timeout", "curl", "ss", "ip"]
     if tmux_present:
@@ -51,14 +51,11 @@ def test_installer_checks_external_tmux_before_installing_dependencies(tmp_path,
          "test", str(SOURCE / "scripts/setup-tmux.sh")],
         env=env, text=True, capture_output=True,
     )
-    assert result.returncode == 0, result.stdout + result.stderr
+    assert (result.returncode == 0) == tmux_present, result.stdout + result.stderr
     if tmux_present:
         assert not log.exists()
     else:
-        update, install = log.read_text().splitlines()
-        assert update == "update"
-        assert install.split()[:2] == ["install", "-y"]
-        assert "tmux" in install.split()[2:]
+        assert not log.exists()  # Missing dependencies never imply consent.
 
 
 def test_install_exposes_short_command_and_preserves_user_settings(tmp_path):
@@ -2115,3 +2112,57 @@ def test_window_preview_popup_preserves_two_attached_clients(tmp_path, server, p
     wait_for(lambda: '__manager' not in tmux('show-messages', '-J'))
     assert clients() == before_clients
     assert tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid} #{pane_dead} #{pane_mode}') == before_panes
+
+
+@pytest.mark.parametrize('replaced', [False, True])
+def test_install_preserves_running_server_when_binary_differs_or_was_upgraded(tmp_path, server, preview_terminals, replaced):
+    import shlex
+
+    env, tmux = server
+    start, wait_for = preview_terminals
+    home = tmp_path / 'installed-home'
+    home.mkdir()
+    assert install(home).returncode == 0
+    tmux('set-option', '-g', 'status-left', 'INSKEEP')
+    tmux('new-session', '-d', '-s', 'other', 'sleep 60')
+    first = start(['tmux', 'attach-session', '-t', 'seed'], env)
+    second = start(['tmux', 'attach-session', '-t', 'other'], env)
+    wait_for(lambda: b'INSKEEP' in first[3] and b'INSKEEP' in second[3])
+    before = (
+        tmux('list-panes', '-a', '-F', '#{pane_id}:#{pane_pid}:#{pane_dead}:#{pane_in_mode}'),
+        tmux('list-clients', '-F', '#{client_name}:#{session_id}:#{window_id}:#{pane_id}'),
+        tmux('show-options', '-gqv', 'status-left'),
+    )
+    wrapper = tmp_path / 'selected-tmux'
+    disk_version = tmux('-V') if replaced else 'tmux 9.0'
+    wrapper.write_text(f'#!/bin/bash\nif [[ $1 == -V ]]; then echo {shlex.quote(disk_version)}; else exec {shlex.quote(shutil.which("tmux"))} "$@"; fi\n')
+    wrapper.chmod(0o755)
+    Path(env['PIMUX_RUNTIME_FILE']).write_text(f'{wrapper}\ndefault\n{shutil.which("tmux")}\n')
+    result = subprocess.run(
+        ['bash', '-c', 'source "$1"; configure_runtime; PIMUX_TMUX_REPLACED=$2; reload_compatible_runtime',
+         'test', str(SOURCE / 'scripts/setup-tmux.sh'), str(replaced).lower()],
+        env={**env, 'HOME': str(home)}, capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert 'Existing server kept unchanged' in result.stdout
+    assert before == (
+        tmux('list-panes', '-a', '-F', '#{pane_id}:#{pane_pid}:#{pane_dead}:#{pane_in_mode}'),
+        tmux('list-clients', '-F', '#{client_name}:#{session_id}:#{window_id}:#{pane_id}'),
+        tmux('show-options', '-gqv', 'status-left'),
+    )
+    assert first[0].poll() is None and second[0].poll() is None
+
+
+def test_install_checks_new_runtime_module_before_replacing_launcher(tmp_path):
+    home = tmp_path / 'home'
+    home.mkdir()
+    assert install(home).returncode == 0
+    launcher = home / '.local/bin/pimux'
+    old_launcher = '#!/bin/bash\n# pimux-managed: previous launcher\necho previous\n'
+    launcher.write_text(old_launcher)
+    helper = home / '.config/pimux/tmux_compat.bash'
+    helper.write_text('# unrelated user file\n')
+    result = install(home)
+    assert result.returncode != 0
+    assert launcher.read_text() == old_launcher
+    assert helper.read_text() == '# unrelated user file\n'

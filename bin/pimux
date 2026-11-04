@@ -10,6 +10,7 @@ PIMUX_ROOT=$(dirname -- "$(dirname -- "$PIMUX_LAUNCHER")")
 PIMUX_UI_DIR="$PIMUX_ROOT/lib"
 [[ -f $PIMUX_UI_DIR/ui.bash ]] || PIMUX_UI_DIR="$HOME/.config/pimux"
 source "$PIMUX_UI_DIR/ui.bash"
+source "$PIMUX_UI_DIR/tmux_compat.bash"
 
 tmux() {
     if (( ${#PIMUX_COMMAND[@]} )); then
@@ -478,8 +479,7 @@ doctor() {
     if [[ -n $PIMUX_TARGET_SOCKET ]]; then
         printf_ui '程序：%s\nsocket：%s\n' "${PIMUX_COMMAND[0]}" "$PIMUX_TARGET_SOCKET"
     fi
-    if [[ $version =~ ([0-9]+)\.([0-9]+) ]] && \
-       (( BASH_REMATCH[1] > 3 || (BASH_REMATCH[1] == 3 && BASH_REMATCH[2] >= 2) )); then
+    if pimux_tmux_version_supported "$version"; then
         printf_ui '版本：满足 pimux 配置要求（>= 3.2）\n'
     else
         printf_ui '版本：配置要求 tmux >= 3.2\n'

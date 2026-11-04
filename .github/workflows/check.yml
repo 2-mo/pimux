@@ -16,6 +16,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Check terminal behavior in the shared environment
-        run: bash scripts/check.sh tests/test_pimux.py tests/test_gpu.py tests/test_views.py tests/test_environment.py -q
+        run: bash scripts/check.sh tests/test_pimux.py tests/test_gpu.py tests/test_views.py tests/test_environment.py tests/test_installer.py -q
       - name: Build release archive
         run: bash scripts/package.sh
