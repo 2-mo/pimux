@@ -257,6 +257,41 @@ def test_installed_config_loads_and_reload_does_not_duplicate_features(tmp_path,
     assert tmux("list-panes", "-t", "=seed", "-F", "#{pane_dead}") == "0"
 
 
+@pytest.mark.parametrize('language', ['en', 'zh'])
+@pytest.mark.parametrize('columns', [40, 80, 160])
+def test_status_footer_expands_path_and_prefix_at_supported_widths(tmp_path, server, preview_terminals, language, columns):
+    env, tmux = server
+    start, wait_for = preview_terminals
+    cwd = tmp_path / 'terminal path TQ7'
+    cwd.mkdir()
+    tmux('source-file', str(SOURCE / 'config/tmux.conf'))
+    tmux('set-option', '-g', '@pimux_language', language)
+    tmux('set-option', '-g', 'status-left', 'COMPAT-READY')
+    window, pane = tmux('new-window', '-t', 'seed', '-c', str(cwd), '-P', '-F',
+                        '#{window_id} #{pane_id}', 'sleep 60').split()
+    before = tmux('list-panes', '-a', '-F', '#{pane_id}:#{pane_pid}:#{pane_dead}')
+    client = start(['tmux', 'attach-session', '-t', 'seed'], env)
+    fcntl.ioctl(client[2], termios.TIOCSWINSZ, struct.pack('HHHH', 32, columns, 0, 0))
+    wait_for(lambda: b'COMPAT-READY' in client[3])
+    wait_for(lambda: tmux('list-clients', '-F', '#{client_width}') == str(columns))
+
+    def footer():
+        return tmux('list-clients', '-F', '#{E:status-format[1]}')
+
+    normal = footer()
+    assert 'TQ7' in normal, normal
+    assert 'Ctrl-a' in normal and ('detach' if language == 'en' else '离开') in normal
+    os.write(client[1], b'\x01')
+    wait_for(lambda: tmux('list-clients', '-F', '#{client_prefix}') == '1')
+    prefix = footer()
+    assert 'Ctrl-a' in prefix and 'Esc' in prefix, prefix
+    os.write(client[1], b'\x1b')
+    wait_for(lambda: tmux('list-clients', '-F', '#{client_prefix}') == '0')
+    assert 'TQ7' in footer()
+    assert tmux('display-message', '-p', '-t', 'seed:', '#{window_id}:#{pane_id}') == f'{window}:{pane}'
+    assert tmux('list-panes', '-a', '-F', '#{pane_id}:#{pane_pid}:#{pane_dead}') == before
+
+
 def test_concurrent_create_exact_name_and_preserve_existing_window(tmp_path, server):
     env, tmux = server
     cwd = tmp_path / "project 'quoted'; literal"
