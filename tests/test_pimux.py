@@ -2,6 +2,7 @@
 
 import os
 import fcntl
+import re
 import select
 import shutil
 import signal
@@ -257,6 +258,79 @@ def test_installed_config_loads_and_reload_does_not_duplicate_features(tmp_path,
     assert tmux("list-panes", "-t", "=seed", "-F", "#{pane_dead}") == "0"
 
 
+@pytest.mark.parametrize("width", [40, 80, 160])
+@pytest.mark.parametrize("language,detach", [("en", "detach"), ("zh", "离开")])
+def test_status_footer_reveals_shortcuts_only_after_prefix(tmp_path, server, width, language, detach):
+    env, tmux = server
+    directory = tmp_path / ("project-" * 30 if language == "en" else "项目目录" * 20)
+    directory.mkdir()
+    # A long ASCII/CJK path exercises the footer's displayed-width reservation.
+    tmux("respawn-pane", "-k", "-t", "=seed:", "-c", str(directory), "sleep", "60")
+    tmux("source-file", str(SOURCE / "config/tmux.conf"))
+    tmux("set-option", "-g", "@pimux_language", language)
+    tmux("set-option", "-g", "status-right", "")
+    pane = tmux("display-message", "-p", "-t", "=seed:", "#{pane_id}")
+    pid = tmux("display-message", "-p", "-t", pane, "#{pane_pid}")
+    master, slave = os.openpty()
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, width, 0, 0))
+    client = subprocess.Popen(["tmux", "attach-session", "-t", "=seed"], env=env,
+                              stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
+    output = bytearray()
+
+    def wait_for(condition):
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if condition():
+                return
+            if select.select([master], [], [], .05)[0]:
+                output.extend(os.read(master, 65536))
+        pytest.fail(output.decode(errors="replace")[-1500:])
+
+    def rendered(option):
+        return re.sub(r"#\[[^]]*\]", "", tmux("list-clients", "-F", f"#{{E:{option}}}"))
+
+    def footer_width():
+        return int(tmux("list-clients", "-F", "#{w:#{E:status-format[1]}}"))
+
+    try:
+        wait_for(lambda: tmux("list-clients", "-F", "#{session_name}") == "seed")
+        assert tmux("list-clients", "-F", "#{client_width}") == str(width)
+        normal = f"Ctrl-a → d {detach}"
+        assert rendered("@pimux_hint_normal") == normal
+        footer = rendered("status-format[1]")
+        assert footer.endswith(f" {normal}")
+        assert str(directory) not in footer
+        assert directory.name[-5:] in footer
+        assert 0 < footer_width() <= width
+        for _ in range(2):
+            os.write(master, b"\x01")
+            wait_for(lambda: tmux("list-clients", "-F", "#{client_prefix}") == "1")
+            prefix = rendered("status-format[1]")
+            assert prefix != footer and "Ctrl-a" in prefix
+            for key in ("c ", ", ", "x ", "Esc"):
+                assert key in prefix
+            assert 0 < footer_width() <= width
+            os.write(master, b"\x1b")
+            wait_for(lambda: tmux("list-clients", "-F", "#{client_prefix}") == "0")
+            assert rendered("status-format[1]") == footer
+
+        # Contextual mode hints still take precedence over the quiet footer.
+        tmux("copy-mode", "-t", pane)
+        assert "[COPY]" in rendered("status-format[1]")
+        tmux("send-keys", "-t", pane, "-X", "cancel")
+        assert rendered("status-format[1]") == footer
+        os.write(master, b"\x01d")
+        wait_for(lambda: client.poll() is not None)
+        assert client.returncode == 0
+        assert tmux("display-message", "-p", "-t", pane, "#{pane_pid} #{pane_dead}") == f"{pid} 0"
+    finally:
+        if client.poll() is None:
+            client.terminate()
+            client.wait(timeout=5)
+        os.close(master)
+        os.close(slave)
+
+
 def test_concurrent_create_exact_name_and_preserve_existing_window(tmp_path, server):
     env, tmux = server
     cwd = tmp_path / "project 'quoted'; literal"
@@ -299,6 +373,8 @@ def test_noninteractive_entry_is_read_only(server):
 def test_background_tmux_manages_exact_windows_without_a_terminal(tmp_path, server):
     env, tmux = server
     before = tmux("list-panes", "-a", "-F", "#{pane_id} #{pane_pid}")
+    focus_format = "#{window_id} #{pane_id} #{pane_mode}"
+    focus_before = tmux("display-message", "-p", "-t", "=seed:", focus_format)
     directory = tmp_path / "experiment 'quoted'; $literal"
     directory.mkdir()
 
@@ -308,7 +384,8 @@ def test_background_tmux_manages_exact_windows_without_a_terminal(tmp_path, serv
 
     assert call().returncode == 2
     created = call("new-window", "-d", "-t", "=seed:", "-n", "experiment 'one'; $literal",
-                   "-c", str(directory), "-P", "-F", "#{window_id} #{pane_id}", "sleep", "60")
+                   "-c", str(directory), "-P", "-F", "#{window_id} #{pane_id}",
+                   "sh", "-c", "printf '%s\\n' 'background output'; exec sleep 60")
     assert created.returncode == 0, created.stderr
     window, pane = created.stdout.strip().split()
     assert window.startswith("@") and pane.startswith("%")
@@ -319,6 +396,21 @@ def test_background_tmux_manages_exact_windows_without_a_terminal(tmp_path, serv
     metadata = call("display-message", "-p", "-t", pane, "#{window_id}\t#{window_name}")
     assert metadata.stdout == f"{window}\tevaluation 'two'\n"
     assert not metadata.stderr
+    # Inspecting a background terminal must not attach, select it or enter copy mode.
+    # Compare the native capture result rather than assuming tmux's whitespace.
+    capture_args = ("capture-pane", "-p", "-t", pane, "-S", "-100")
+    deadline = time.monotonic() + 5
+    while "background output" not in tmux(*capture_args) and time.monotonic() < deadline:
+        time.sleep(.05)
+    native_capture = subprocess.run(["tmux", *capture_args], env=env,
+                                    text=True, capture_output=True)
+    capture = call(*capture_args)
+    assert "background output" in capture.stdout
+    assert (capture.returncode, capture.stdout, capture.stderr) == (
+        native_capture.returncode, native_capture.stdout, native_capture.stderr)
+    assert tmux("display-message", "-p", "-t", "=seed:", focus_format) == focus_before
+    assert not tmux("display-message", "-p", "-t", pane, "#{pane_mode}")
+    assert tmux("display-message", "-p", "-t", pane, "#{pane_pid}") == pid
     native_error = subprocess.run(["tmux", "list-panes", "-t", "@999999999"], env=env,
                                   text=True, capture_output=True)
     error = call("list-panes", "-t", "@999999999")
@@ -1547,11 +1639,16 @@ def test_copy_path_targets_only_requesting_client(tmp_path, server, source):
                 if master in readable:
                     outputs[index].extend(os.read(master, 65536))
 
+        def clients_rendered():
+            return all(f' {session} '.encode() in output
+                       for session, output in zip(('seed', 'peer'), outputs))
+
         deadline = time.monotonic() + 8
-        # Registration can precede terminal setup; wait for both rendered UIs.
-        while not all(b'menu' in output for output in outputs) and time.monotonic() < deadline:
+        # Registration can precede terminal setup; identify each rendered session
+        # by its status label, independently of the contextual shortcut hints.
+        while not clients_rendered() and time.monotonic() < deadline:
             drain()
-        assert all(b'menu' in output for output in outputs), outputs
+        assert clients_rendered(), outputs
         if source == "ip":
             os.write(clients[0][1], b'\x01h')
             deadline = time.monotonic() + 8

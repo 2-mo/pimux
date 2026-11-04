@@ -49,7 +49,7 @@ pimux --version
 
 Press `Ctrl-a`, release it, then press the action key. A bright orange badge shows that PiMux is waiting for the next key, alongside common actions. Esc cancels and restores the normal status bar:
 
-New-window, rename and close-pane shortcuts stay visible while waiting, with shorter labels in narrow terminals. Wide terminals also show them beside the current directory during normal use. `Ctrl-a h` opens with Workspace expanded; action keys work directly inside this menu.
+During normal use, the footer shows the current directory and only `Ctrl-a → d detach`. Pressing `Ctrl-a` reveals new-window, rename and close-pane shortcuts, with shorter labels in narrow terminals. Esc cancels and restores the quiet footer. `Ctrl-a h` opens with Workspace expanded; action keys work directly inside this menu.
 
 | Key | Action |
 |---|---|

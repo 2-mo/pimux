@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Keep the normal footer focused on the current directory and `Ctrl-a → d detach`; reveal other shortcuts after pressing Ctrl-a. Copy and manager modes retain their contextual hints.
+- Cover quiet/prefix/cancel/detach transitions and long directory paths in both languages and narrow/wide terminals, plus background capture without changing the session's selected window, pane or mode.
+- Hand native tmux commands directly to the configured client so cancellation signals reach it, while preserving literal arguments, byte streams, exit status and server selection.
+
 ## 0.10.1
 
 - Accept both ASCII `|` and fullwidth `｜` for left/right splits after Ctrl-a and inside the action menu; keep `v` as the primary shortcut.
