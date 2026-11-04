@@ -2,6 +2,8 @@
 
 Local verification and GitHub Actions use the same image from `.github/ci/Dockerfile`: Ubuntu 24.04, tmux 3.4, Python 3.12 and a pinned uv. Python dependencies come from `uv.lock`.
 
+The check image rebuilds Ubuntu's tmux 3.4 source package with the [upstream fix for libutempter losing child-exit notifications](https://github.com/tmux/tmux/commit/fa5f3cef3d651b0eb9abfa77fc37ccade81679b5). APT authenticates the Ubuntu source and build dependencies; the two-line backport is stored in `.github/ci/tmux-utempter-sigchld.patch` and applies without fuzz. The rebuild retains Ubuntu's patches and packaging, adds a `+pimux1` package revision, and installs the resulting `.deb` normally, including its genuine dpkg ownership and file digests. The separate build stage adds compiler/dependency downloads and compilation to an uncached image build; later local checks reuse Docker layers, and build tools are not copied into the test image. This is a test-environment backport only: user installation, the tmux 3.2 minimum and all test assertions are unchanged. If Ubuntu incorporates the fix, remove this backport rather than skipping a failed patch.
+
 Run the tests affected by a change before pushing:
 
 ```bash
