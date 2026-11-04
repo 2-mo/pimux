@@ -1,10 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.11.0
 
 - Keep the normal footer focused on the current directory and `Ctrl-a → d detach`; reveal other shortcuts after pressing Ctrl-a. Copy and manager modes retain their contextual hints.
 - Cover quiet/prefix/cancel/detach transitions and long directory paths in both languages and narrow/wide terminals, plus background capture without changing the session's selected window, pane or mode.
 - Hand native tmux commands directly to the configured client so cancellation signals reach it, while preserving literal arguments, byte streams, exit status and server selection.
+
+- Preserve tab/newline-containing paths, pane IDs and exit status in window previews and manager search; prefer tmux's native foreground working directory.
+- Check the actual configured tmux before changing packages. Offer an APT upgrade only for an unchanged package-owned binary with a sufficient candidate, and require an explicit terminal `y` after showing the command and any sudo use. Keep the tmux minimum at 3.2.
+- Reload only the installer's verified server; leave older, replaced or unqueryable servers running unchanged. Protect custom binaries, unrelated clients and existing pane programs.
 
 ## 0.10.1
 
