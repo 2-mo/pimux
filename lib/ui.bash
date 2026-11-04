@@ -217,7 +217,7 @@ save_language() (
     case $value in en|zh) ;; *) return 2 ;; esac
     mkdir -p -- "$(dirname -- "$file")"
     exec 9>"${file}.lock"
-    flock 9
+    pimux_lock 9
     temporary=$(mktemp "${file}.new.XXXXXX")
     printf '%s\n' "$value" > "$temporary"
     mv -- "$temporary" "$file"

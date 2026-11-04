@@ -4,6 +4,14 @@ case $- in
     *) return ;;
 esac
 
+source "$(dirname -- "${BASH_SOURCE[0]}")/runtime.bash"
+# User rc files and tmux clients may reset PATH. Restore the selected runtimes
+# before prompt hooks call tmux, including when Bash and tmux live separately.
+if [[ ${PIMUX_TMUX:-} == /* && -x $PIMUX_TMUX ]]; then
+    export PATH="${PIMUX_TMUX%/*}:$PATH"
+fi
+pimux_bootstrap "${BASH_SOURCE[0]}" || return
+
 case ":$PATH:" in
     *":$HOME/.local/bin:"*) ;;
     *) export PATH="$HOME/.local/bin:$PATH" ;;

@@ -5,15 +5,33 @@ import fcntl
 import select
 import shutil
 import signal
+import socket
 import struct
 import subprocess
 import termios
 import time
+import tempfile
+import sys
 from pathlib import Path
 
 import pytest
 
 SOURCE = Path(__file__).resolve().parents[1]
+
+
+def wait_terminal(process, master, timeout=5, output=None):
+    """Drain terminal output while waiting; Darwin's small PTY buffer can fill
+    during tmux teardown before the client has a chance to exit."""
+    deadline = time.monotonic() + timeout
+    while process.poll() is None and time.monotonic() < deadline:
+        if select.select([master], [], [], .02)[0]:
+            try:
+                data = os.read(master, 65536)
+                if output is not None:
+                    output.extend(data)
+            except OSError:
+                break
+    return process.wait(timeout=max(.01, deadline - time.monotonic()))
 
 
 def install(home, function="install_files"):
@@ -28,6 +46,7 @@ def install(home, function="install_files"):
 def test_installer_checks_external_tmux_before_installing_dependencies(tmp_path, tmux_present):
     tools = tmp_path / "bin"
     tools.mkdir()
+    (tools / "bash").symlink_to(shutil.which("bash"))
     for name in ("dirname", "readlink"):
         (tools / name).symlink_to(shutil.which(name))
     present = tools / "present"
@@ -45,9 +64,10 @@ def test_installer_checks_external_tmux_before_installing_dependencies(tmp_path,
     sudo.write_text('#!/bin/sh\nexec "$@"\n')
     sudo.chmod(0o755)
     log = tmp_path / "packages.log"
-    env = dict(os.environ, PATH=str(tools), HOME=str(tmp_path), PIMUX_DEPENDENCY_LOG=str(log))
+    env = dict(os.environ, PATH=str(tools), HOME=str(tmp_path), PIMUX_DEPENDENCY_LOG=str(log),
+               PIMUX_BASH=str(tools / "bash"))
     result = subprocess.run(
-        [shutil.which("bash"), "-c", 'source "$1" && install_dependencies',
+        [str(tools / "bash"), "-c", 'OSTYPE=linux-gnu; source "$1" && install_dependencies',
          "test", str(SOURCE / "scripts/setup-tmux.sh")],
         env=env, text=True, capture_output=True,
     )
@@ -150,10 +170,15 @@ def test_installed_gpu_dashboard_uses_its_own_runtime(tmp_path, monkeypatch):
     ss = bindir / 'ss'
     ss.write_text('#!/bin/sh\necho \'LISTEN 0 128 127.0.0.1:8888 0.0.0.0:* users:(("demo",pid=2147483647,fd=3))\'\n')
     ss.chmod(0o755)
-    result = subprocess.run([str(home / '.local/bin/pimux'), 'ports', '8888'], env=env,
-                            capture_output=True, text=True)
-    assert result.returncode == 0, result.stderr
-    assert '8888' in result.stdout and 'demo' in result.stdout
+    with socket.socket() as listener:
+        listener.bind(('127.0.0.1', 0))
+        listener.listen()
+        port = str(listener.getsockname()[1]) if sys.platform == 'darwin' else '8888'
+        result = subprocess.run([str(home / '.local/bin/pimux'), 'ports', port], env=env,
+                                capture_output=True, text=True)
+        assert result.returncode == 0, result.stderr
+        assert port in result.stdout
+        assert (str(os.getpid()) if sys.platform == 'darwin' else 'demo') in result.stdout
     ip = bindir / 'ip'
     ip.write_text('''#!/bin/sh
 case "$*" in
@@ -162,10 +187,10 @@ case "$*" in
 esac
 ''')
     ip.chmod(0o755)
-    result = subprocess.run([str(home / '.local/bin/pimux'), 'ip', '--once'], env=env,
+    result = subprocess.run([str(home / '.local/bin/pimux'), 'ip', '--once', '--all'], env=env,
                             capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
-    assert '192.0.2.23/24' in result.stdout
+    assert ('127.0.0.1/8' if sys.platform == 'darwin' else '192.0.2.23/24') in result.stdout
     result = subprocess.run([str(home / '.local/bin/pimux'), '__proxy'], env=env,
                             capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
@@ -214,8 +239,9 @@ source "$1"
 def server(tmp_path):
     if not shutil.which("tmux"):
         pytest.skip("requires tmux")
-    socket_dir = tmp_path / "sockets"
-    socket_dir.mkdir()
+    # Darwin AF_UNIX paths are short; pytest's descriptive paths can exceed them.
+    socket_home = tempfile.TemporaryDirectory(prefix="pimux-test-", dir="/tmp")
+    socket_dir = Path(socket_home.name)
     env = {k: v for k, v in os.environ.items() if k not in {"TMUX", "TMUX_PANE"}}
     env["TMUX_TMPDIR"] = str(socket_dir)
     env["TERM"] = "xterm-256color"
@@ -237,6 +263,7 @@ def server(tmp_path):
     finally:
         # Only this fixture's socket is addressed; never touch the user's server.
         subprocess.run(["tmux", "kill-server"], env=env, capture_output=True)
+        socket_home.cleanup()
 
 
 def test_installed_config_loads_and_reload_does_not_duplicate_features(tmp_path, server):
@@ -314,7 +341,11 @@ def test_background_tmux_manages_exact_windows_without_a_terminal(tmp_path, serv
     window, pane = created.stdout.strip().split()
     assert window.startswith("@") and pane.startswith("%")
     pid = tmux("display-message", "-p", "-t", pane, "#{pane_pid}")
-    assert Path(f"/proc/{pid}/cwd").readlink() == directory
+    if sys.platform == 'darwin':
+        observed = subprocess.check_output(['/usr/sbin/lsof', '-a', '-p', pid, '-d', 'cwd', '-Fn'], text=True)
+        assert f'n{directory}\n' in observed
+    else:
+        assert Path(f"/proc/{pid}/cwd").readlink() == directory
     renamed = call("rename-window", "-t", window, "evaluation 'two'")
     assert renamed.returncode == 0, renamed.stderr
     metadata = call("display-message", "-p", "-t", pane, "#{window_id}\t#{window_name}")
@@ -328,6 +359,35 @@ def test_background_tmux_manages_exact_windows_without_a_terminal(tmp_path, serv
     closed = call("kill-window", "-t", window)
     assert closed.returncode == 0, closed.stderr
     assert tmux("list-panes", "-a", "-F", "#{pane_id} #{pane_pid}") == before
+
+
+@pytest.mark.parametrize('signum', [signal.SIGINT, signal.SIGTERM])
+def test_native_passthrough_cancellation_matches_tmux(server, signum):
+    env, tmux = server
+    results = []
+    before = tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid}')
+    for index, prefix in enumerate((['tmux'], [str(SOURCE / 'bin/pimux'), 'tmux'])):
+        channel = f'held-by-test-{index}'
+        tmux('wait-for', '-L', channel)
+        process = subprocess.Popen([*prefix, 'display-message', '-p', 'native-ready', ';',
+                                    'wait-for', '-L', channel], env=env,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            assert select.select([process.stdout], [], [], 5)[0]
+            assert process.stdout.readline() == b'native-ready\n'
+            process.send_signal(signum)
+            if signum == signal.SIGINT:
+                # Native tmux ignores SIGINT once initialized; release both
+                # calls identically instead of asserting an early-startup race.
+                tmux('wait-for', '-U', channel)
+            out, error = process.communicate(timeout=5)
+            results.append((process.returncode, out, error))
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=3)
+    assert results[0] == results[1]
+    assert tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid}') == before
 
 
 @pytest.mark.parametrize("close_original", [False, True])
@@ -425,8 +485,8 @@ def test_independent_view_shares_programs_and_preserves_last_reference(tmp_path,
     finally:
         for process, master, slave in clients:
             if process.poll() is None:
-                process.terminate()
-                process.wait(timeout=5)
+                os.killpg(process.pid, signal.SIGTERM)
+                wait_terminal(process, master, timeout=5)
             os.close(master)
             os.close(slave)
 
@@ -489,6 +549,8 @@ def test_runtime_routes_new_and_system_servers_separately(server):
 
 def test_shared_server_reload_and_short_command_preserve_other_sessions(server):
     env, tmux = server
+    # Explicit personal preference: native tmux defaults differ by version.
+    tmux('set-option', '-g', 'mouse', 'off')
     Path(env['PIMUX_RUNTIME_FILE']).write_text(
         f"{shutil.which('tmux')}\npimux\n{shutil.which('tmux')}\n"
     )
@@ -571,8 +633,8 @@ def test_shared_server_reload_and_short_command_preserve_other_sessions(server):
             tmux('list-sessions', '-F', '#{session_name}:#{@original_gpu_key}'),
         )
     finally:
-        client.terminate()
-        client.wait(timeout=5)
+        os.killpg(client.pid, signal.SIGTERM)
+        wait_terminal(client, master, timeout=5)
         os.close(master)
         os.close(slave)
 
@@ -601,35 +663,38 @@ def test_nested_splits_work_with_letter_pipe_and_menu_shortcuts(server, pipe_key
     def panes():
         return tmux('list-panes', '-t', 'seed', '-F', '#{pane_id}').splitlines()
 
+    def prefix(key):
+        os.write(master, b'\x01')
+        wait_for(lambda: tmux('list-clients', '-F', '#{client_prefix}') == '1')
+        os.write(master, key)
+
     try:
         wait_for(lambda: '离开'.encode() in output)
-        os.write(master, b'\x01-')
+        prefix(b'-')
         wait_for(lambda: len(panes()) == 2)
         parent = tmux('list-clients', '-F', '#{pane_id}')
         parent_width, parent_height, parent_top = map(int, tmux(
             'display-message', '-p', '-t', parent, '#{pane_width} #{pane_height} #{pane_top}').split())
-        os.write(master, b'\x01v')
+        prefix(b'v')
         wait_for(lambda: len(panes()) == 3)
         pieces = [list(map(int, row.split())) for row in tmux(
             'list-panes', '-t', 'seed', '-F', '#{pane_width} #{pane_height} #{pane_top}').splitlines()]
         nested = [row for row in pieces if row[2] == parent_top]
         assert len(nested) == 2 and all(row[1] == parent_height for row in nested)
         assert sum(row[0] for row in nested) + 1 == parent_width
-        os.write(master, b'\x01-')
+        prefix(b'-')
         wait_for(lambda: len(panes()) == 4)
-        os.write(master, b'\x01' + pipe_key.encode())
+        prefix(pipe_key.encode())
         wait_for(lambda: len(panes()) == 5)
         output.clear()
-        os.write(master, b'\x01h')
+        prefix(b'h')
         wait_for(lambda: '工作终端'.encode() in output)
         os.write(master, pipe_key.encode())
         wait_for(lambda: len(panes()) == 6)
         assert before <= set(tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid}').splitlines())
     finally:
         subprocess.run(['tmux', 'detach-client', '-t', os.ttyname(slave)], env=env, capture_output=True)
-        if client.poll() is None:
-            client.terminate()
-            client.wait(timeout=5)
+        wait_terminal(client, master, timeout=5)
         os.close(master)
         os.close(slave)
 
@@ -709,13 +774,13 @@ def test_manager_can_close_its_own_session(server, has_other_session):
             assert tmux("list-panes", "-t", "=seed:", "-F", "#{pane_id} #{pane_pid}") == kept_pane
     finally:
         if client.poll() is None:
-            client.terminate()
-            client.wait(timeout=5)
+            os.killpg(client.pid, signal.SIGTERM)
+            wait_terminal(client, master, timeout=5)
         os.close(master)
         os.close(slave)
         if peer.poll() is None:
-            peer.terminate()
-            peer.wait(timeout=5)
+            os.killpg(peer.pid, signal.SIGTERM)
+            wait_terminal(peer, peer_master, timeout=5)
         os.close(peer_master)
         os.close(peer_slave)
 
@@ -751,20 +816,25 @@ def test_empty_manager_creates_only_on_request_and_help_is_read_only(tmp_path, s
     try:
         wait_for("暂无会话")
         assert subprocess.run(["tmux", "list-sessions"], env=env, capture_output=True).returncode != 0
+        output.clear()
         os.write(master, b"n")
         wait_for("会话名称")
+        wait_for("experiment-v2")
         output.clear()
         os.write(master, b"\x15\r")
         wait_for("暂无会话")
         assert subprocess.run(["tmux", "list-sessions"], env=env, capture_output=True).returncode != 0
+        output.clear()
         os.write(master, b"n")
         wait_for("会话名称")
+        wait_for("experiment-v2")
         os.write(master, b"\x15bad.name\r")
         wait_for("不能")
         assert subprocess.run(["tmux", "list-sessions"], env=env, capture_output=True).returncode != 0
         output.clear()
         os.write(master, b"n")
         wait_for("会话名称")
+        wait_for("experiment-v2")
         os.write(master, b"\r" if use_suggested_name else b"\x15ls\r")
         deadline = time.monotonic() + 8
         while time.monotonic() < deadline:
@@ -772,19 +842,20 @@ def test_empty_manager_creates_only_on_request_and_help_is_read_only(tmp_path, s
                                     env=env, capture_output=True, text=True)
             if result.stdout.strip() == expected:
                 break
-            time.sleep(0.05)
+            if select.select([master], [], [], .05)[0]:
+                output.extend(os.read(master, 65536))
         else:
             pytest.fail(output.decode(errors="replace")[-1500:])
         os.write(master, b"\x01d")
-        assert client.wait(timeout=8) == 0
+        assert wait_terminal(client, master, timeout=8) == 0
         assert tmux("list-sessions", "-F", "#{session_name}") == expected
         assert tmux('display-message', '-p', '-t', f'={expected}:', '#{pane_current_path}') == str(project)
         listing = subprocess.check_output([str(SOURCE / "bin/pimux"), "ls"], env=env, text=True)
         assert f"{expected}  " in listing and "~view-" not in listing
     finally:
         if client.poll() is None:
-            client.terminate()
-            client.wait(timeout=5)
+            os.killpg(client.pid, signal.SIGTERM)
+            wait_terminal(client, master, timeout=5)
         os.close(master)
         os.close(slave)
 
@@ -904,8 +975,8 @@ def test_language_menu_persists_and_syncs_only_pimux_across_servers(server):
     finally:
         for process, master, slave in clients:
             if process.poll() is None:
-                process.terminate()
-                process.wait(timeout=5)
+                os.killpg(process.pid, signal.SIGTERM)
+                wait_terminal(process, master, timeout=5)
             os.close(master)
             os.close(slave)
         subprocess.run(["tmux", "-L", "parallel", "kill-server"], env=env, capture_output=True)
@@ -996,7 +1067,7 @@ def test_search_gpu_popup_and_reload_preserve_running_panes(tmp_path, server):
         os.write(master, b'd')
         wait_for(lambda: b'GPU-MOCK' in output and b'demo-process' in output)
         assert tmux('display-message', '-p', '-t', f'{view}:', '#{window_id}') == wanted
-        assert not tmux('display-message', '-p', '-t', f'{view}:', '#{pane_mode}')
+        assert not tmux('display-message', '-p', '-t', f'{view}:', '#{pane_mode}'), tmux('capture-pane', '-p', '-t', f'{view}:')
         os.write(master, b'q')
         wait_for(lambda: '__gpu' not in tmux('show-messages', '-J'))
         output.clear()
@@ -1023,11 +1094,11 @@ def test_search_gpu_popup_and_reload_preserve_running_panes(tmp_path, server):
         after = set(tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid}').splitlines())
         assert after == set(before.splitlines())
         os.write(master, b'\x01d')
-        assert client.wait(timeout=5) == 0
+        assert wait_terminal(client, master, timeout=5) == 0
     finally:
         if client.poll() is None:
-            client.terminate()
-            client.wait(timeout=5)
+            os.killpg(client.pid, signal.SIGTERM)
+            wait_terminal(client, master, timeout=5)
         os.close(master)
         os.close(slave)
 
@@ -1104,14 +1175,14 @@ manager
         assert b'OPEN:' not in output
         os.write(master, f'\x1b[<0;{item_x};4M'.encode())
         wait_for(f'OPEN:$0:{wanted}'.encode())
-        assert process.wait(timeout=5) == 0
-        assert termios.tcgetattr(slave) == original_terminal
+        assert wait_terminal(process, master, timeout=5) == 0
+        assert termios.tcgetattr(master) == original_terminal
         assert b'\x1b[?1000l\x1b[?1006l' in output
         assert tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid}') == before
     finally:
         if process.poll() is None:
-            process.terminate()
-            process.wait(timeout=5)
+            os.killpg(process.pid, signal.SIGTERM)
+            wait_terminal(process, master, timeout=5)
         os.close(master)
         os.close(slave)
 
@@ -1179,17 +1250,20 @@ def test_gpu_mouse_wheel_scrolls_and_restores_terminal(tmp_path, server, exit_wi
         else:
             process.send_signal(signal.SIGTERM)
         wait_for(b'\x1b[?1049l')
-        assert process.wait(timeout=5) == 0
+        assert wait_terminal(process, master, timeout=5, output=output) == 0
         while select.select([master], [], [], 0)[0]:
-            output.extend(os.read(master, 65536))
+            data = os.read(master, 65536)
+            if not data:
+                break
+            output.extend(data)
         reset_modes = {mode for modes in re.findall(rb'\x1b\[\?([0-9;]+)l', output)
                        for mode in modes.split(b';')}
         assert {b'1000', b'1006'} <= reset_modes
-        assert termios.tcgetattr(slave) == original_terminal
+        assert termios.tcgetattr(master) == original_terminal
     finally:
         if process.poll() is None:
-            process.terminate()
-            process.wait(timeout=5)
+            os.killpg(process.pid, signal.SIGTERM)
+            wait_terminal(process, master, timeout=5)
         os.close(master)
         os.close(slave)
 
@@ -1212,6 +1286,11 @@ exit "$UPDATE_DOWNLOAD_STATUS"
                UPDATE_DOWNLOAD_LOG=str(log), UPDATE_DOWNLOAD_STATUS=str(download_status))
     result = subprocess.run([str(SOURCE / 'bin/pimux'), 'update'], env=env,
                             capture_output=True, text=True)
+    if sys.platform == 'darwin':
+        assert result.returncode == 2
+        assert 'source preview' in result.stderr
+        assert 'UPDATE_EXECUTED' not in result.stdout and not log.exists()
+        return
     assert result.returncode == download_status
     assert ('UPDATE_EXECUTED' in result.stdout) == (download_status == 0)
     assert not Path(log.read_text()).exists()
@@ -1277,19 +1356,19 @@ def test_mouse_click_passes_through_tmux_popup_to_manager(tmp_path, server):
         wait_for(lambda: b'mouse-target' in output and b'[1/1]' in output)
         os.write(master, b'\x1b[<0;46;5M\x1b[<0;46;5m')
         wait_for(lambda: tmux('list-clients', '-F', '#{window_id}') == wanted)
-        assert popup.wait(timeout=5) == 0
+        assert wait_terminal(popup, master, timeout=5) == 0
         assert tmux('list-clients', '-F', '#{pane_id}') == wanted_pane
         assert set(tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid}').splitlines()) == panes_before
         assert tmux('display-message', '-p', '-t', '=seed:', '#{window_id}') == original
         os.write(master, b'\x01d')
-        assert client.wait(timeout=5) == 0
+        assert wait_terminal(client, master, timeout=5) == 0
     finally:
         if client.poll() is None:
-            client.terminate()
-            client.wait(timeout=5)
+            os.killpg(client.pid, signal.SIGTERM)
+            wait_terminal(client, master, timeout=5)
         if popup is not None and popup.poll() is None:
             popup.terminate()
-            popup.wait(timeout=5)
+            wait_terminal(popup, master, timeout=5)
         os.close(master)
         os.close(slave)
 
@@ -1329,11 +1408,11 @@ def test_manager_closes_only_the_selected_pane_after_confirmation(tmp_path, serv
         assert set(tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid}').splitlines()) == {
             row for row in before if not row.startswith(target + ' ')}
         os.write(master, b'q')
-        assert process.wait(timeout=5) == 0
+        assert wait_terminal(process, master, timeout=5) == 0
     finally:
         if process.poll() is None:
-            process.terminate()
-            process.wait(timeout=5)
+            os.killpg(process.pid, signal.SIGTERM)
+            wait_terminal(process, master, timeout=5)
         os.close(master)
         os.close(slave)
 
@@ -1500,22 +1579,22 @@ manager
         wait_for(lambda: subprocess.check_output([*prefix, 'session_pin_names'], env=env) == b'')
         os.write(master, b'\r')
         wait_for(lambda: f'OPEN:{zeta}'.encode() in output)
-        assert process.wait(timeout=5) == 0
+        assert wait_terminal(process, master, timeout=5) == 0
     finally:
         if process.poll() is None:
-            process.terminate()
-            process.wait(timeout=5)
+            os.killpg(process.pid, signal.SIGTERM)
+            wait_terminal(process, master, timeout=5)
         os.close(master)
         os.close(slave)
 
 
-@pytest.mark.parametrize("source", ["path", "ip"])
+@pytest.mark.parametrize("source", ["path", "path-with-newline", "ip"])
 def test_copy_path_targets_only_requesting_client(tmp_path, server, source):
     import base64
     env, tmux = server
-    directory = tmp_path / 'project "quoted" $literal'
+    directory = tmp_path / ('project "quoted" $literal' + ('\n' if source == 'path-with-newline' else ''))
     directory.mkdir()
-    if source == "ip":
+    if source == "ip" and sys.platform != 'darwin':
         tools = tmp_path / "network-bin"
         tools.mkdir()
         (tools / "tmux").symlink_to(shutil.which("tmux"))
@@ -1561,18 +1640,24 @@ def test_copy_path_targets_only_requesting_client(tmp_path, server, source):
                 drain()
             os.write(clients[0][1], b'i')
             deadline = time.monotonic() + 8
-            while b'192.0.2.23/24' not in outputs[0]:
+            while 'IP 与网络'.encode() not in outputs[0]:
+                assert time.monotonic() < deadline, outputs[0].decode(errors="replace")
+                drain()
+            if sys.platform == 'darwin':
+                os.write(clients[0][1], b'a/lo0\r')
+            address = b'127.0.0.1/8' if sys.platform == 'darwin' else b'192.0.2.23/24'
+            while address not in outputs[0]:
                 assert time.monotonic() < deadline, outputs[0].decode(errors="replace")
                 drain()
             os.write(clients[0][1], b'y')
         else:
             os.write(clients[0][1], b'\x01y')
-        expected = "192.0.2.23" if source == "ip" else str(directory)
+        expected = ("127.0.0.1" if sys.platform == 'darwin' else "192.0.2.23") if source == "ip" else str(directory)
         encoded = base64.b64encode(expected.encode())
         deadline = time.monotonic() + 8
         while encoded not in outputs[0] and time.monotonic() < deadline:
             drain()
-        assert tmux('show-buffer') == expected
+        assert subprocess.check_output(['tmux', 'save-buffer', '-'], env=env) == expected.encode()
         assert encoded in outputs[0] and b']52;' in outputs[0], outputs[0].decode(errors='replace')
         drain()
         assert encoded not in outputs[1]
@@ -1580,8 +1665,8 @@ def test_copy_path_targets_only_requesting_client(tmp_path, server, source):
     finally:
         for process, master, slave in clients:
             if process.poll() is None:
-                process.terminate()
-                process.wait(timeout=5)
+                os.killpg(process.pid, signal.SIGTERM)
+                wait_terminal(process, master, timeout=5)
             os.close(master)
             os.close(slave)
 
@@ -1643,11 +1728,11 @@ def test_proxy_panel_sets_disables_and_restores_preferences(tmp_path):
         os.write(master, b'i')
         wait_for(lambda: file.read_text() == 'inherit\nhttp://127.0.0.1:8088\n')
         os.write(master, b'q')
-        assert process.wait(timeout=5) == 0
+        assert wait_terminal(process, master, timeout=5) == 0
     finally:
         if process.poll() is None:
-            process.terminate()
-            process.wait(timeout=5)
+            os.killpg(process.pid, signal.SIGTERM)
+            wait_terminal(process, master, timeout=5)
         os.close(master)
         os.close(slave)
 
@@ -1824,10 +1909,18 @@ def test_proxy_icon_detects_legacy_foreground_process_without_restarting_it(serv
     output = bytearray()
     try:
         deadline = time.monotonic() + 8
-        while '⛓'.encode() not in output and time.monotonic() < deadline:
+        ready = b'cards' if sys.platform == 'darwin' else '⛓'.encode()
+        while ready not in output and time.monotonic() < deadline:
             if select.select([master], [], [], .05)[0]:
                 output.extend(os.read(master, 65536))
-        assert '⛓'.encode() in output, output.decode(errors='replace')[-1000:]
+        if sys.platform == 'darwin':
+            # macOS has no /proc environment adapter; retain an honest unknown
+            # state for legacy panes, and never restart or inspect credentials.
+            from proxy_status import process_proxy_state
+            assert process_proxy_state(pid) == ''
+            assert '⛓'.encode() not in output
+        else:
+            assert '⛓'.encode() in output, output.decode(errors='replace')[-1000:]
         assert b'private-test-secret' not in output
         assert b'cards' in output
         # A shell report takes precedence over the process startup environment.
@@ -1838,8 +1931,8 @@ def test_proxy_icon_detects_legacy_foreground_process_without_restarting_it(serv
         assert tmux('display-message', '-p', '-t', pane, '#{pane_dead}') == '0'
     finally:
         if client.poll() is None:
-            client.terminate()
-            client.wait(timeout=5)
+            os.killpg(client.pid, signal.SIGTERM)
+            wait_terminal(client, master, timeout=5)
         os.close(master)
         os.close(slave)
 
@@ -1882,10 +1975,10 @@ def test_close_pane_confirms_and_targets_only_the_selected_split(server):
         wait_for(lambda: tmux('list-panes', '-t', 'seed:', '-F', '#{pane_id}') == survivor)
         assert tmux('display-message', '-p', '-t', survivor, '#{pane_pid}') == survivor_pid
         prefix(b'd')
-        assert client.wait(timeout=5) == 0
+        assert wait_terminal(client, master, timeout=5) == 0
     finally:
         if client.poll() is None:
-            client.terminate()
-            client.wait(timeout=5)
+            os.killpg(client.pid, signal.SIGTERM)
+            wait_terminal(client, master, timeout=5)
         os.close(master)
         os.close(slave)

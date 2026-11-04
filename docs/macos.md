@@ -1,69 +1,71 @@
 # macOS major-version track
 
-PiMux's Mac direction is one Mac managing several servers: host identity, connection state, terminal sessions and host resources. It is server management, not experiment management. This track is independent of the Linux 0.10.x fixes. This foundation does not bump the release version or publish a Mac archive.
+The Mac direction is one Mac managing several servers: host identity, connection state, terminal sessions and host resources. This is server management, not experiment management. This track is separate from Linux 0.10.x fixes. The source preview provides a **local terminal only**; SSH shells do not constitute multi-server management. There is no Mac release archive, version bump or published installer.
 
-## Milestone 1: native read-only host inspectors
+## Native local source preview
 
-The Python inspection views now select a native macOS adapter for local TCP listeners, process command display and working directories, interface addresses, and IPv4/IPv6 routes. The adapter uses `/usr/sbin/lsof`, `/bin/ps`, `/sbin/ifconfig` and `/usr/sbin/netstat`. Queries use argument arrays, a fixed locale, and a three-second timeout per command. They do not request administrator privileges or change services, interfaces, routes or configuration.
+Requirements: macOS, Bash >=5.1, tmux >=3.2, Python >=3.10, uv, curl and `tmux-256color` terminfo. Apple Bash 3.2 can read the bootstrap and select modern Bash before loading application libraries. Bash 5.1 is required for `PROMPT_COMMAND` arrays as well as associative arrays and `mapfile`.
 
-Use an existing Python 3.10+ and uv in a source checkout:
-
-```sh
-uv run --locked python lib/ports.py --once
-uv run --locked python lib/ports.py 8888 --once
-uv run --locked python lib/network.py --once
-uv run --locked python lib/gpu.py --once
-```
-
-These are development entry points. Use the network snapshot (`--once`); its existing interactive proxy editor still depends on the unsupported Bash launcher. Missing NVIDIA tools produce an explicit unavailable-telemetry message, not a claim that the Mac has no GPU. Apple GPU telemetry is not implemented. The GPU command returns a nonzero status for unavailable telemetry.
-
-Port discovery is limited to processes visible to the current user. An empty lsof selection is distinct from a failed query; diagnostic warnings fail visibly rather than showing an incomplete snapshot as complete. Process command text from `ps` is for display, not a lossless argument list. A process that exits or becomes inaccessible has unavailable command/directory data. Route snapshots retain separate defaults and scoped IPv6 gateways; host, rejected, blackhole, loopback, link-local and multicast routes are omitted by the existing view's subnet model. macOS uses the `system` routing-table label, without claiming Linux policy-routing tables or route priorities.
-
-The lsof adapter decodes UTF-8 byte escapes, escaped backslashes and C whitespace once. Ambiguous caret notation for other control characters remains a display representation; working-directory text is not used to execute commands or select targets.
-
-The Linux providers retain `ss`, `ip -j` and `/proc`. The native adapter emits the existing inspector records; this is a small platform boundary, not a rewrite of the terminal/session engine. The installer copies the new module for Linux installations too, so these imports also work after installation.
-
-## Explicit limits
-
-The native Mac terminal is **not supported yet**. `install.sh` and direct `scripts/setup-tmux.sh` execution reject macOS before downloads or home-directory writes. Apple Bash 3.2 gets an actionable runtime error before loading libraries. A newer Bash alone does not make the launcher compatible.
-
-Remaining dependencies are substantive:
-
-| Area | Current requirement / next work |
-| --- | --- |
-| Shell runtime | Associative arrays, `mapfile`, lowercase expansion and `declare -gA` require Bash >=4.2. Select and pin an explicit modern Bash runtime for the launcher, tmux helpers and child shells. Do not silently use Apple Bash. |
-| Paths and utilities | `readlink -m`, GNU checksum/archive flags and `timeout` need tested replacements or explicit GNU dependencies. Recent macOS `readlink -f` availability does not cover all uses. |
-| Locking | Shell `flock` calls need an owned, consistently used implementation; Python already uses `fcntl.flock`. Do not replace advisory locks with unsafe lock-file existence checks. |
-| tmux and installation | Validate the selected native tmux runtime and terminfo, shell startup behavior, configuration preservation, installation/update/uninstall and isolated sockets. No native tmux executable was available during this milestone. |
-| Process environment | Linux `/proc` foreground-environment inference has no macOS implementation; report unknown rather than infer proxy state. |
-| GPU | NVIDIA-only collection, with explicit unavailability on this Mac; Apple GPU metrics are out of scope. |
-| Servers | No host inventory, SSH transport abstraction, remote snapshot protocol or cross-server aggregation yet. An SSH shell into a server is not multi-server management. |
-
-The proposed runtime direction is a modern Bash dependency with narrow platform adapters, preserving the established Linux shell/session engine. A Bash 3.2 rewrite would touch most stateful shell code and does not belong in this bounded milestone. GNU tools should be added only for remaining gaps, not to emulate Linux process/network tools on macOS. No global tools were installed for this change.
-
-## Next milestones and acceptance gates
-
-1. **Local terminal runtime:** explicitly choose modern Bash/tmux and locking/path helpers; validate install/update/uninstall under an isolated HOME, detached sessions, split windows, keyboard/mouse actions, multi-client targeting and native passthrough on macOS. Retain Ubuntu 24.04/tmux 3.4 regressions. This is the next prerequisite for an end-user Mac build.
-2. **Host inventory and read-only aggregation:** add explicit host IDs and opt-in server entries, reuse system SSH configuration/agent without copying private keys, verify host keys, report connection state/timeouts per host, and introduce versioned structured snapshots with capability flags. Aggregate at least two isolated test servers on one Mac, including unavailable-host handling and duplicate session names. Keep local and remote identities visible.
-3. **Targeted server actions:** route session/window actions by `(host_id, server/socket, session/window/pane_id)`; prove that actions cannot cross hosts, that reconnects recover safely, and that network failures do not destroy background work. Use disposable fixtures before opt-in real-server validation.
-4. **Major-version release readiness:** finalize packaging and support versions; run independent Linux and macOS CI plus two-server integration gates, preserve upgrade/rollback paths, and document actual limits before choosing the major version and publishing.
-
-Product decisions before milestones 2–3: initial remote OS support (proposal: Linux servers first), whether server discovery stays manual/imported from SSH configuration, and which management actions beyond terminal/session lifecycle belong in the first major release. No decision here blocks the read-only foundation.
-
-## Verification
-
-`tests/test_macos.py` includes BSD output fixtures, permission/failure handling, bounded subprocess calls, installer side-effect checks and real macOS listener/process/network probes. Its three native-only tests must skip on Linux; fixture tests on Linux are not evidence of native Mac support. Existing network keyboard, mouse, clipboard targeting and document rendering regressions also run in the Mac CI job. The Linux CI job retains the full original suite and adds the new fixture/guard tests.
-
-Before pushing, run explicit affected tests through the repository's required environment:
+Prefer existing dependencies. The optional developer build installs pinned upstream Bash 5.3.20 and tmux 3.8, with static libevent, utf8proc and jemalloc, entirely under a new removable directory:
 
 ```sh
-bash scripts/check.sh tests/test_macos.py tests/test_views.py tests/test_gpu.py \
-  tests/test_pimux.py::test_installer_checks_external_tmux_before_installing_dependencies \
-  tests/test_pimux.py::test_install_exposes_short_command_and_preserves_user_settings \
-  tests/test_pimux.py::test_install_refuses_unrelated_launcher_and_keeps_symlink \
-  tests/test_pimux.py::test_installed_config_loads_and_reload_does_not_duplicate_features \
-  tests/test_pimux.py::test_background_tmux_manages_exact_windows_without_a_terminal \
-  tests/test_pimux.py::test_window_preview_reports_exit_code_and_preserves_panes -q
+python3 scripts/build-macos-runtime.py /tmp/pimux-native-runtime
+export PIMUX_BASH=/tmp/pimux-native-runtime/prefix/bin/bash
+export PATH="/tmp/pimux-native-runtime/prefix/bin:$PATH"
+uv sync --locked
 ```
 
-Run the Mac CI command from `.github/workflows/check.yml` on a real Mac as well. This validates the inspector milestone; it does not validate native tmux, proxy saving, installation or a Mac release. The existing full `tests/test_views.py` suite includes proxy persistence through the Bash launcher and still fails that test under Apple Bash 3.2; do not treat the smaller inspector target set as whole-application support.
+This requires Xcode command-line tools. Source URLs and SHA-256 values are in `scripts/macos-runtime-sources.json`. It never runs sudo, Homebrew or a package manager. The directory must be new and contain no whitespace or commas (upstream build constraints). Keep its prefix in a stable location for an installation; deleting it invalidates the runtime pin. Failed builds retain their sources for diagnosis.
+
+The build uses libevent's pipe fallback because a newer SDK can weak-link `pipe2` absent from the running OS. Static jemalloc must retain its Darwin zone constructor to avoid mixing libc allocations with the wrong free routine; its C++ support uses the system library. A real server/split/cleanup smoke test follows compilation; `tmux -V` alone cannot detect these failures.
+
+For an isolated trial, use a disposable shell, fresh HOME and short socket directory:
+
+```sh
+export HOME="$(mktemp -d /tmp/pimux-home.XXXXXX)"
+export TMUX_TMPDIR="$(mktemp -d /tmp/pimux-sockets.XXXXXX)"
+bash scripts/setup-tmux.sh
+"$HOME/.local/bin/pimux" -n local
+```
+
+The source installer checks dependencies before writing assets. The Linux download entry point `install.sh` continues to reject macOS before downloads or writes. Mac `pimux update` explains the source-preview boundary without fetching a Linux installer; reinstall from the chosen checkout. Existing Starship is optional on Mac and is not downloaded automatically.
+
+Python packages live in `~/.local/share/pimux/venv`. A literal Bash pin is saved in `~/.config/pimux/shell.conf`; a tmux selection is created only when no existing runtime configuration exists. `PIMUX_BASH` explicitly overrides Bash selection. Malformed configuration, unavailable executables and old Bash fail clearly. Logical sessions, client views, helpers and subsequent panes use the selected runtime, including when a login shell or tmux client resets PATH. Existing user settings are preserved.
+
+Installation backs up changed files and appends only the command PATH line to supported shell startup files. Unrelated launcher/assets and existing configuration symlinks are refused. Reinstallation preserves saved proxy/environment/runtime settings and live panes. Uninstallation removes the managed launcher, retaining configuration and sessions.
+
+## Platform boundary
+
+`lib/runtime.bash` delegates macOS gaps to standard-library Python: paths with missing components, filesystem signatures, inherited-descriptor advisory locking, bounded command groups and exact process directories. Linux retains its established GNU/util-linux implementations. Timeout and cancellation terminate the command group, with a kill after the grace period for resistant processes. No lock-file existence approximation is used.
+
+Darwin terminal directory actions use the public `proc_pidinfo` ABI via libproc, preserving Unicode, quotes, backslashes, newlines and controls. Display inspectors use `lsof`, `ps`, `ifconfig` and `netstat` through absolute system paths, bounded queries and no administrator privileges. Lsof's ambiguous caret escapes remain display text, not action targets. Queries do not change networking or connect to user servers.
+
+Ports include only processes visible to the current user; empty selection differs from query failure. Process command text is for display, not a lossless argument vector. Exit/permission failures leave details unavailable. Network snapshots retain scoped IPv6 gateways and separate defaults, with a `system` table label rather than Linux policy-table claims. Subnet filtering omits host, rejected, blackhole, loopback, link-local and multicast routes. `pimux ip --once --all` includes loopback interfaces.
+
+Missing NVIDIA tools produce explicit unavailable telemetry, not a claim that the Mac has no GPU. Apple GPU metrics are unimplemented. Proxy saving and shell reports use the selected runtime. Legacy foreground-environment inference still requires Linux `/proc`; Mac reports unknown rather than inspecting credentials or restarting processes.
+
+`pimux tmux` execs the configured command array, preserving native arguments, streams and cancellation. This common fix also exists in Linux draft PR #1; this independent branch does not modify that PR.
+
+## Verification and limits
+
+Run the unchanged repository gate before pushing, with explicit targets in **Ubuntu 24.04 / tmux 3.4**:
+
+```sh
+bash scripts/check.sh tests/test_pimux.py tests/test_gpu.py tests/test_views.py \
+  tests/test_environment.py tests/test_macos.py tests/test_host_runtime.py \
+  tests/test_native_terminal.py -q
+```
+
+The native CI job builds the pinned toolchain and runs the full local suite. The isolated installation regression checks modern Bash selection from a system-only PATH, two clients, windows/splits, keyboard/mouse targets, cancelled closure, proxy saving, detach, reinstall and uninstall while keeping live processes and a separate sentinel server. Native probes require a real Mac; Linux skips them. Starship is optional, and the Linux-only ss listener test has a separate native listener probe.
+
+Darwin PTY buffers are small: tests drain output during shutdown, stop on EOF and verify restored flags through the surviving master descriptor. Targeting/process-preservation assertions remain strict. Cancellation is compared after a response from the initialized native tmux client, avoiding signals raced against startup.
+
+Client views independently select **windows**, sharing programs. Panes within the same shared tmux window retain native shared active-pane semantics; this preview does not claim independent same-window focus or program copies. There is no packaged Mac release, Intel Mac validation, Apple GPU collector, host inventory, remote protocol or cross-server aggregation. CI validates its exact source commit and tested platforms; it is not release certification.
+
+## Following major-version milestones
+
+1. **Host inventory and read-only aggregation:** explicit host IDs and opt-in entries; system SSH configuration/agent without copying keys; host-key verification; per-host connection/timeouts; versioned structured snapshots with capability flags. Aggregate at least two isolated test servers, including unavailable hosts and duplicate session names.
+2. **Targeted server actions:** route by `(host_id, server/socket, session/window/pane_id)`; prove actions cannot cross hosts and reconnect/network failures preserve work. Use disposable fixtures before opt-in real-server validation.
+3. **Release readiness:** finalize packaging/support versions, upgrade/rollback, independent Linux/Mac CI and two-server gates before choosing and publishing the major version.
+
+Later product decisions: Linux-first remote support; manual host entries versus optional SSH-config import; and management actions beyond terminal/session lifecycle. These do not block the local runtime foundation.

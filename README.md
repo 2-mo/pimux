@@ -14,7 +14,7 @@ curl -fsSL https://raw.githubusercontent.com/2-mo/pimux/main/install.sh | bash &
 
 On Debian/Ubuntu, missing tmux and terminal dependencies are installed automatically.
 
-The separate [macOS major-version track](docs/macos.md) currently provides experimental native read-only inspectors from source. The macOS terminal launcher, installer and multi-server management are not supported yet.
+The separate [macOS major-version track](docs/macos.md) adds a source preview of the native local terminal and host inspectors, using explicit modern Bash/tmux runtimes. It has no published Mac installer or multi-server management yet.
 
 ## Use
 

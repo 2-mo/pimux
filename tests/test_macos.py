@@ -144,7 +144,7 @@ def test_missing_nvidia_on_macos_does_not_claim_no_gpu(monkeypatch):
     assert "Apple GPU" in monitor.error
 
 
-@pytest.mark.parametrize("script", ["install.sh", "scripts/setup-tmux.sh"])
+@pytest.mark.parametrize("script", ["install.sh"])
 def test_installer_rejects_macos_before_dependencies_or_home_writes(tmp_path, script):
     tools = tmp_path / "tools"
     tools.mkdir()
@@ -204,9 +204,9 @@ def test_native_macos_child_cwd_and_exit(tmp_path):
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="requires the actual Apple Bash 3.2 runtime")
-def test_apple_bash_reports_runtime_requirement_before_loading_libraries(tmp_path):
+def test_apple_bash_selects_modern_runtime_before_loading_libraries(tmp_path):
     result = subprocess.run(["/bin/bash", str(SOURCE / "bin/pimux"), "--version"],
                             env={**os.environ, "HOME": str(tmp_path)}, text=True, capture_output=True)
-    assert result.returncode != 0 and "Bash >= 4.2" in result.stderr
+    assert result.returncode == 0 and "pimux " in result.stdout, result.stderr
     assert "syntax error" not in result.stderr
     assert not list(tmp_path.iterdir())

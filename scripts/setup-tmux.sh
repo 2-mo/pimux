@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
 # Install the complete personal terminal into the current user's home.
 set -euo pipefail
-if [[ ${BASH_SOURCE[0]} == "$0" && $(uname -s) != Linux ]]; then
-    printf 'This installer supports Linux. Native macOS terminal installation is not available yet.\n' >&2
-    exit 1
-fi
 PIMUX_SOURCE_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+source "$PIMUX_SOURCE_DIR/lib/runtime.bash"
+pimux_bootstrap "${BASH_SOURCE[0]}" "$@" || { return 1 2>/dev/null || exit 1; }
 source "$PIMUX_SOURCE_DIR/bin/pimux"
 
 backup_file() {
@@ -64,14 +62,19 @@ install_files() (
     [[ $target_home != *$'\n'* ]] || { printf 'Installation path must not contain a newline.\n' >&2; return 1; }
     mkdir -p -- "$target_home/.local/bin" "$config_dir"
     exec 9>"$config_dir/install.lock"
-    flock 9
+    pimux_lock 9
     install_asset "$source_dir/bin/pimux" "$target_home/.local/bin/pimux" 755
     install_asset "$source_dir/config/tmux.conf" "$config_dir/tmux.conf" 644
     install_asset "$source_dir/config/starship.toml" "$config_dir/starship.toml" 644
     install_asset "$source_dir/scripts/uninstall.sh" "$config_dir/uninstall.sh" 644
-    for file in ui.bash manager.bash manager_ui.py navigation.py menu_ui.py layout_ui.py gpu.bash gpu.py gpu_ui.py inspect_ui.py macos.py ports.py network.py window_details.py utility_ui.py environment.py environment_ui.py environment.bash proxy_ui.py proxy_status.py proxy.bash command_status.bash shell.bash bashrc; do
+    for file in runtime.bash host_runtime.py ui.bash manager.bash manager_ui.py navigation.py menu_ui.py layout_ui.py gpu.bash gpu.py gpu_ui.py inspect_ui.py macos.py ports.py network.py window_details.py utility_ui.py environment.py environment_ui.py environment.bash proxy_ui.py proxy_status.py proxy.bash command_status.bash shell.bash bashrc; do
         install_asset "$source_dir/lib/$file" "$config_dir/$file" 644
     done
+    local shell_config
+    shell_config=$(mktemp)
+    trap 'rm -f -- "$shell_config"' EXIT
+    printf '# pimux-managed: Bash runtime\n%s\n' "$PIMUX_BASH" > "$shell_config"
+    install_asset "$shell_config" "$config_dir/shell.conf" 600
     install_command_path "$target_home"
 )
 
@@ -116,6 +119,21 @@ install_starship() (
 
 install_dependencies() {
     local command missing=false
+    if [[ $OSTYPE == darwin* ]]; then
+        for command in tmux infocmp curl python3; do
+            type -P "$command" >/dev/null 2>&1 || {
+                printf 'Missing macOS dependency: %s. Provide Bash >= 5.1, tmux >= 3.2, Python >= 3.10 and tmux-256color terminfo on PATH; no global packages are installed automatically.\n' "$command" >&2
+                return 1
+            }
+        done
+        python3 -c 'import sys; sys.exit(sys.version_info < (3, 10))' || {
+            printf 'PiMux requires Python >= 3.10.\n' >&2; return 1;
+        }
+        infocmp tmux-256color >/dev/null 2>&1 || {
+            printf 'Missing tmux-256color terminfo.\n' >&2; return 1;
+        }
+        return
+    fi
     for command in tmux infocmp flock timeout readlink curl ss ip; do
         # The launcher defines a tmux function; check executable files on PATH.
         type -P "$command" >/dev/null 2>&1 || missing=true
@@ -125,7 +143,7 @@ install_dependencies() {
     fi
     [[ $missing == true ]] || return 0
     command -v apt-get >/dev/null 2>&1 || {
-        printf 'Install Bash 4+, tmux 3.2+, ncurses terminfo, util-linux, coreutils, iproute2 and curl, then rerun this installer.\n' >&2
+        printf 'Install Bash 5.1+, tmux 3.2+, ncurses terminfo, util-linux, coreutils, iproute2 and curl, then rerun this installer.\n' >&2
         return 1
     }
     local -a admin=()
@@ -144,7 +162,7 @@ main() {
         [[ $# == 1 && ( $1 == --help || $1 == -h ) ]]
         return
     fi
-    [[ $(uname -s) == Linux ]] || { printf 'This release supports Linux.\n' >&2; return 1; }
+    [[ $OSTYPE == linux* || $OSTYPE == darwin* ]] || { printf 'PiMux supports Linux and macOS.\n' >&2; return 1; }
     install_dependencies
     configure_runtime
     local version
@@ -153,16 +171,21 @@ main() {
         (( BASH_REMATCH[1] > 3 || (BASH_REMATCH[1] == 3 && BASH_REMATCH[2] >= 2) )) || {
             printf 'tmux >= 3.2 is required; found %s.\n' "$version" >&2; return 1;
         }
-    install_starship
+    if [[ $OSTYPE != darwin* ]]; then install_starship
+    else printf 'macOS source preview: using an existing Starship prompt if available.\n'; fi
     install_gpu_runtime "$HOME" "$PIMUX_SOURCE_DIR"
     install_files "$HOME" "$PIMUX_SOURCE_DIR"
+    if [[ $OSTYPE == darwin* && ! -e $HOME/.config/pimux/runtime.conf && ! -L $HOME/.config/pimux/runtime.conf ]]; then
+        # A literal, private runtime pin; never replace a user's existing selection.
+        (umask 077; set -C; printf '%s\npimux\n%s\n' "${PIMUX_COMMAND[0]}" "${PIMUX_COMMAND[0]}" > "$HOME/.config/pimux/runtime.conf")
+    fi
     "$HOME/.local/bin/pimux" reload
     printf '\nPiMux %s is ready. Open your terminal workspace:\n  pimux\n' "$PIMUX_VERSION"
     case ":$PATH:" in
         *":$HOME/.local/bin:"*) ;;
         *) printf 'For this terminal, run: export PATH="$HOME/.local/bin:$PATH"\nNew Bash and Zsh terminals are configured automatically.\n' ;;
     esac
-    printf 'Theme, prompt and GPU indicators are enabled automatically. No font installation is required.\n'
+    printf 'Theme and available prompt integrations are enabled. GPU telemetry depends on NVIDIA tooling; Apple GPU metrics are not supported.\n'
 }
 
 if [[ ${BASH_SOURCE[0]} == "$0" ]]; then

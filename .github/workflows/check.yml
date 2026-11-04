@@ -16,11 +16,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Check terminal behavior in the shared environment
-        run: bash scripts/check.sh tests/test_pimux.py tests/test_gpu.py tests/test_views.py tests/test_environment.py tests/test_macos.py -q
+        run: bash scripts/check.sh tests/test_pimux.py tests/test_gpu.py tests/test_views.py tests/test_environment.py tests/test_macos.py tests/test_host_runtime.py tests/test_native_terminal.py -q
       - name: Build release archive
         run: bash scripts/package.sh
-  macos-inspectors:
+  macos-terminal:
     runs-on: macos-14
+    env:
+      UV_CACHE_DIR: ${{ runner.temp }}/pimux-uv-cache
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -29,10 +31,15 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           version: '0.11.29'
-      - name: Check native read-only inspectors (terminal installation remains unsupported)
+      - name: Build pinned removable native Bash and tmux
+        run: |
+          python scripts/build-macos-runtime.py "$RUNNER_TEMP/pimux-native-runtime"
+          echo "$RUNNER_TEMP/pimux-native-runtime/prefix/bin" >> "$GITHUB_PATH"
+          echo "PIMUX_BASH=$RUNNER_TEMP/pimux-native-runtime/prefix/bin/bash" >> "$GITHUB_ENV"
+      - name: Prepare locked test dependencies
+        run: uv sync --locked
+      - name: Check native terminal and installed lifecycle
         run: >-
           uv run --locked python -m pytest tests/test_macos.py tests/test_gpu.py
-          tests/test_views.py::test_network_selection_copies_ip_subnet_and_wrapped_link_local
-          tests/test_views.py::test_network_clipboard_targets_the_requesting_terminal
-          tests/test_views.py::test_network_keeps_multiple_subnets_and_tailscale_routes_distinct
-          tests/test_views.py::test_document_filters_and_scrolls_full_paths_and_handles_literal_controls -q
+          tests/test_views.py tests/test_environment.py tests/test_host_runtime.py
+          tests/test_pimux.py tests/test_native_terminal.py -q

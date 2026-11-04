@@ -1,18 +1,24 @@
 #!/usr/bin/env bash
 # pimux-managed: standalone personal terminal workspace.
 set -euo pipefail
-if (( BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 2) )); then
-    printf 'PiMux requires Bash >= 4.2; found %s. The native macOS terminal launcher is not supported yet.\n' "$BASH_VERSION" >&2
-    return 1 2>/dev/null || exit 1
-fi
 PIMUX_VERSION=0.10.1
 PIMUX_COMMAND=()
 PIMUX_TARGET_SOCKET=''
 PIMUX_SHARED_SERVER=false
-PIMUX_LAUNCHER=$(readlink -f -- "${BASH_SOURCE[0]}")
+PIMUX_LAUNCHER=${BASH_SOURCE[0]}
+PIMUX_LINK_DEPTH=0
+while [[ -L $PIMUX_LAUNCHER ]]; do
+    (( PIMUX_LINK_DEPTH++ < 40 )) || { printf 'PiMux launcher symlink loop.\n' >&2; return 1 2>/dev/null || exit 1; }
+    PIMUX_LINK=$(readlink -- "$PIMUX_LAUNCHER")
+    if [[ $PIMUX_LINK == /* ]]; then PIMUX_LAUNCHER=$PIMUX_LINK
+    else PIMUX_LAUNCHER="$(dirname -- "$PIMUX_LAUNCHER")/$PIMUX_LINK"; fi
+done
+PIMUX_LAUNCHER="$(cd -P -- "$(dirname -- "$PIMUX_LAUNCHER")" && pwd)/${PIMUX_LAUNCHER##*/}"
 PIMUX_ROOT=$(dirname -- "$(dirname -- "$PIMUX_LAUNCHER")")
 PIMUX_UI_DIR="$PIMUX_ROOT/lib"
 [[ -f $PIMUX_UI_DIR/ui.bash ]] || PIMUX_UI_DIR="$HOME/.config/pimux"
+source "$PIMUX_UI_DIR/runtime.bash"
+pimux_bootstrap "${BASH_SOURCE[0]}" "$@" || { return 1 2>/dev/null || exit 1; }
 source "$PIMUX_UI_DIR/ui.bash"
 
 tmux() {
@@ -58,12 +64,16 @@ configure_runtime() {
         [[ $system != true ]] || socket=default
     fi
     PIMUX_COMMAND=("$binary" -L "$socket")
+    export PIMUX_TMUX=$binary
     PIMUX_SHARED_SERVER=false
     [[ $socket != default ]] || PIMUX_SHARED_SERVER=true
     [[ $system == true ]] || PIMUX_COMMAND+=(-f "$(theme_file)")
-    PIMUX_TARGET_SOCKET=$(readlink -m "${TMUX_TMPDIR:-/tmp}/tmux-$UID/$socket")
+    PIMUX_TARGET_SOCKET=$(pimux_realpath "${TMUX_TMPDIR:-/tmp}/tmux-$UID/$socket")
     # New shells and run-shell helpers must use the matching tmux client.
     export PATH="$(dirname -- "$binary"):$PATH"
+    if [[ ! $(type -P bash) -ef $PIMUX_BASH ]]; then
+        export PATH="${PIMUX_BASH%/*}:$PATH"
+    fi
 }
 
 usage() {
@@ -148,7 +158,7 @@ require_tmux() {
 require_terminal() {
     [[ -t 0 && -t 1 ]] || { printf_ui '请在交互终端中运行；只读查看请用 pimux ls。\n' >&2; return 1; }
     if [[ -n ${TMUX:-} && -n $PIMUX_TARGET_SOCKET ]] && \
-       [[ $(readlink -m "${TMUX%%,*}") != "$PIMUX_TARGET_SOCKET" ]]; then
+       [[ $(pimux_realpath "${TMUX%%,*}") != "$PIMUX_TARGET_SOCKET" ]]; then
         printf_ui '当前位于另一个 tmux server。请先按 Ctrl-a d 离开，再运行此命令；旧会话用 pimux --system。\n' >&2
         return 1
     fi
@@ -192,7 +202,7 @@ gpu_status() {
     local rows index utilization memory circle color output='' count=0
     command -v nvidia-smi >/dev/null 2>&1 || { printf '\n'; return; }
     # tmux runs status jobs asynchronously; bound driver stalls as well.
-    if ! rows=$(timeout -k 1 2 nvidia-smi \
+    if ! rows=$(pimux_timeout 2 nvidia-smi \
         --query-gpu=index,utilization.gpu,memory.used --format=csv,noheader,nounits 2>/dev/null); then
         printf '#[fg=#e5a35b] ? #[default]\n'
         return
@@ -341,9 +351,12 @@ apply_session_theme() {
     done < "$file" | tmux source-file -
     tmux set-option -t "$target" @pimux_launcher "$PIMUX_LAUNCHER"
     tmux set-option -t "$target" @pimux_language "$PIMUX_LANGUAGE"
+    tmux set-option -t "$target" default-shell "$PIMUX_BASH"
+    tmux set-option -t "$target" default-command "exec $(shell_quote "$PIMUX_BASH") --rcfile \"\$HOME/.config/pimux/shell.bash\" -i"
+    tmux set-environment -t "$target" PIMUX_BASH "$PIMUX_BASH"
+    tmux set-environment -t "$target" PIMUX_TMUX "${PIMUX_COMMAND[0]:-$(type -P tmux)}"
     if [[ $PIMUX_SHARED_SERVER == true ]]; then
         tmux set-option -t "$target" prefix C-a
-        tmux set-option -t "$target" default-command 'exec bash --rcfile "$HOME/.config/pimux/shell.bash" -i'
         install_shared_bindings
     fi
 }
@@ -393,14 +406,19 @@ connect_session() (
 )
 
 ensure_session() {
-    local name=$1 failure
+    local name=$1 failure root
     validate_session_name "$name" || return
     if ! tmux has-session -t "=$name" 2>/dev/null; then
-        if ! failure=$(tmux new-session -d -s "$name" -n shell -c "$PWD" 2>&1); then
+        if ! failure=$(tmux new-session -d -s "$name" -n shell -c "$PWD" \
+            "exec $(shell_quote "$PIMUX_BASH") --rcfile \"\$HOME/.config/pimux/shell.bash\" -i" 2>&1); then
             tmux has-session -t "=$name" 2>/dev/null || { printf '%s\n' "$failure" >&2; return 1; }
         fi
     fi
-    tmux display-message -p -t "=$name:" '#{session_id}'
+    root=$(tmux display-message -p -t "=$name:" '#{session_id}')
+    # Pin the logical session as well as client views: native new-window calls
+    # can target the root, whose inherited login shell may reset PATH on macOS.
+    apply_session_theme "$root"
+    printf '%s\n' "$root"
 }
 
 enter_session() {
@@ -440,6 +458,7 @@ configure_socket() {
         binary=${PIMUX_COMMAND[0]:-$(type -P tmux)}
     fi
     PIMUX_COMMAND=("$binary" -S "$socket")
+    export PIMUX_TMUX=$binary
     PIMUX_TARGET_SOCKET=$socket
 }
 
@@ -530,16 +549,39 @@ load_proxy() {
 }
 
 update_pimux() (
+    if [[ $OSTYPE == darwin* ]]; then
+        printf 'macOS source preview: update by reinstalling a reviewed source checkout with scripts/setup-tmux.sh. No macOS release archive is published.\n' >&2
+        return 2
+    fi
     local installer
     installer=$(mktemp)
     trap 'rm -f -- "$installer"' EXIT
     curl --fail --show-error --silent --location --proto '=https' --tlsv1.2 \
         https://raw.githubusercontent.com/2-mo/pimux/main/install.sh -o "$installer" || return
-    bash "$installer"
+    "$PIMUX_BASH" "$installer"
 )
 
 main() {
     local system=false client action sid root
+    if [[ ${1:-} == __proxy-read ]]; then
+        [[ $# == 1 ]] || return 2
+        load_proxy; pimux_proxy_read || return
+        printf '%s\n%s\n' "$PIMUX_PROXY_MODE" "$PIMUX_PROXY_URL"
+        return
+    fi
+    if [[ ${1:-} == __proxy-save ]]; then
+        [[ $# == 2 ]] || return 2
+        local url=''
+        IFS= read -r url || true
+        load_proxy; pimux_proxy_save "$2" "$url"
+        return
+    fi
+    if [[ ${1:-} == __key-notes ]]; then
+        [[ $# == 3 && $2 == /* && -x $2 ]] || return 2
+        PIMUX_COMMAND=("$2" -S "$3")
+        shortcut_help
+        return
+    fi
     if [[ ${1:-} == __proxy-status ]]; then
         [[ $# == 2 ]] || return 2
         load_gpu; python_view proxy_status "$2"
@@ -684,7 +726,11 @@ main() {
                     local path pid
                     pid=$(tmux display-message -p -t "$sid:" '#{pane_pid}')
                     # Some tmux versions escape display output, including literal $.
-                    path=$(readlink -- "/proc/$pid/cwd")
+                    # A sentinel keeps command substitution from discarding
+                    # newline bytes belonging to the directory itself.
+                    path=$(pimux_process_cwd "$pid" && printf '.') || return
+                    path=${path%.}
+                    path=${path%$'\n'}
                     tmux set-buffer -w -t "$client" -- "$path"
                     tmux display-message -c "$client" "$(tr_ui '路径已复制到 tmux，并发送到终端剪贴板。')" ;;
                 pin)
@@ -743,7 +789,7 @@ main() {
             [[ $# == 1 ]] || return 2
             local file="$PIMUX_ROOT/scripts/uninstall.sh"
             [[ -f $file ]] || file="$HOME/.config/pimux/uninstall.sh"
-            exec bash "$file" ;;
+            exec "$PIMUX_BASH" "$file" ;;
         -h|--help) [[ $# == 1 ]] || return 2; usage; return ;;
         ''|ls|tmux|doctor|reload|gpu|help|-n) ;;
         *) printf_ui '未知命令：%s；会话请用 pimux -n NAME，帮助请用 pimux -h。\n' "$1" >&2; return 2 ;;
@@ -752,7 +798,7 @@ main() {
     require_tmux
     # Inside a managed workspace, the short command operates on that workspace.
     if [[ $system == false && -n ${TMUX:-} && -n ${TMUX_PANE:-} &&
-          $(readlink -m "${TMUX%%,*}") != "$PIMUX_TARGET_SOCKET" ]]; then
+          $(pimux_realpath "${TMUX%%,*}") != "$PIMUX_TARGET_SOCKET" ]]; then
         if [[ -n $(command "${PIMUX_COMMAND[0]}" -S "${TMUX%%,*}" show-options -qv \
                     -t "$TMUX_PANE" @pimux_launcher 2>/dev/null) ]]; then
             configure_socket "${TMUX%%,*}"
@@ -765,7 +811,7 @@ main() {
         tmux)
             shift
             [[ $# -gt 0 ]] || { usage >&2; return 2; }
-            tmux "$@" ;;
+            exec "${PIMUX_COMMAND[@]}" "$@" ;;
         doctor) [[ $# -le 2 ]] || { usage >&2; return 2; }; doctor "${2:-}" ;;
         reload) [[ $# == 1 ]] || { usage >&2; return 2; }; reload_config ;;
         gpu) [[ $# == 1 ]] || { usage >&2; return 2; }; require_terminal; load_gpu; python_view gpu ;;
