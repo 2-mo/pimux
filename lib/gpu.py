@@ -177,6 +177,11 @@ def query_gpus():
     """Take one bounded snapshot without creating processes or state beyond the query."""
     if sys.platform == "darwin":
         return query_macos_gpus()
+    return query_nvidia_gpus()
+
+
+def query_nvidia_gpus():
+    """Read one NVIDIA snapshot independently of the host platform."""
     try:
         result = subprocess.run(
             ["nvidia-smi", f"--query-gpu={_FIELDS}", "--format=csv,noheader,nounits"],
@@ -226,6 +231,11 @@ def query_processes(index):
     if sys.platform == "darwin":
         raise GPUReadError(tr("Per-process GPU memory is unavailable on macOS",
                               "macOS 下无法获取每进程 GPU 内存"))
+    return query_nvidia_processes(index)
+
+
+def query_nvidia_processes(index):
+    """Read NVIDIA compute processes independently of the host platform."""
     try:
         result = subprocess.run(
             ["nvidia-smi", "-i", str(index),
