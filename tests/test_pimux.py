@@ -1639,11 +1639,16 @@ def test_copy_path_targets_only_requesting_client(tmp_path, server, source):
                 if master in readable:
                     outputs[index].extend(os.read(master, 65536))
 
+        def clients_rendered():
+            return all(f' {session} '.encode() in output
+                       for session, output in zip(('seed', 'peer'), outputs))
+
         deadline = time.monotonic() + 8
-        # Registration can precede terminal setup; wait for both rendered UIs.
-        while not all(b'menu' in output for output in outputs) and time.monotonic() < deadline:
+        # Registration can precede terminal setup; identify each rendered session
+        # by its status label, independently of the contextual shortcut hints.
+        while not clients_rendered() and time.monotonic() < deadline:
             drain()
-        assert all(b'menu' in output for output in outputs), outputs
+        assert clients_rendered(), outputs
         if source == "ip":
             os.write(clients[0][1], b'\x01h')
             deadline = time.monotonic() + 8
