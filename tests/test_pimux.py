@@ -93,6 +93,7 @@ def test_install_exposes_short_command_and_preserves_user_settings(tmp_path):
     assert len(list(home.glob('.bashrc.pimux-backup.*'))) == 1
     assert os.access(home / '.local/bin/pimux', os.X_OK)
     config = home / '.config/pimux'
+    assert (config / 'macos.py').read_bytes() == (SOURCE / 'lib/macos.py').read_bytes()
     theme = config / 'tmux.conf'
     theme.write_text('# pimux-managed: previous theme\n')
     result = install(home)

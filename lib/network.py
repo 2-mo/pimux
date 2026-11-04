@@ -12,6 +12,8 @@ import socket
 import subprocess
 import sys
 
+import macos
+
 from rich.console import Group
 from rich.style import Style
 from rich.text import Text
@@ -104,11 +106,14 @@ def parse_routes(rows, version):
 
 
 def read_local():
-    interfaces = parse_interfaces(read_json(["ip", "-j", "-d", "address", "show"]))
+    interfaces = parse_interfaces(macos.read_interfaces() if sys.platform == "darwin" else
+                                  read_json(["ip", "-j", "-d", "address", "show"]))
     routes, errors = [], []
     for version in (4, 6):
         try:
-            routes.extend(parse_routes(read_json(["ip", f"-{version}", "-j", "route", "show", "table", "all"]), version))
+            rows = macos.read_routes(version) if sys.platform == "darwin" else read_json(
+                ["ip", f"-{version}", "-j", "route", "show", "table", "all"])
+            routes.extend(parse_routes(rows, version))
         except RuntimeError:
             errors.append(tr(f"IPv{version} routes unavailable", f"IPv{version} 路由不可见"))
     return interfaces, routes, errors

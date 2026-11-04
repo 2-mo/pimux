@@ -10,7 +10,7 @@ bash scripts/check.sh tests/test_pimux.py::test_background_tmux_manages_exact_wi
 
 The first call builds the environment; Docker reuses its layers on later calls. The checkout is mounted read only and copied into a disposable workspace, with its own Python environment. Running checks does not replace the project's `.venv` or access a live user tmux server.
 
-Tests must be specified explicitly. Actions passes the same four test files as before, then builds the release archive. Documentation-only changes retain the workflow's skip rules. No retry or failure-suppression step is used.
+Tests must be specified explicitly. Linux Actions passes the four original test files plus `tests/test_macos.py`, then builds the release archive. The separate macOS job checks the native read-only inspector milestone and its input/rendering regressions; it does not validate a native terminal installation. See [macOS scope and checks](macos.md). Documentation-only changes retain the workflow's skip rules. No retry or failure-suppression step is used.
 
 When changing interactions, select the relevant keyboard, mouse or client-targeting regressions. Avoid assertions about incidental help text, exact rendered rows or version-dependent native formatting; verify the operation and its target instead.
 

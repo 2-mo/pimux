@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # pimux-managed: standalone personal terminal workspace.
 set -euo pipefail
+if (( BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 2) )); then
+    printf 'PiMux requires Bash >= 4.2; found %s. The native macOS terminal launcher is not supported yet.\n' "$BASH_VERSION" >&2
+    return 1 2>/dev/null || exit 1
+fi
 PIMUX_VERSION=0.10.1
 PIMUX_COMMAND=()
 PIMUX_TARGET_SOCKET=''

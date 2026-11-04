@@ -16,6 +16,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Check terminal behavior in the shared environment
-        run: bash scripts/check.sh tests/test_pimux.py tests/test_gpu.py tests/test_views.py tests/test_environment.py -q
+        run: bash scripts/check.sh tests/test_pimux.py tests/test_gpu.py tests/test_views.py tests/test_environment.py tests/test_macos.py -q
       - name: Build release archive
         run: bash scripts/package.sh
+  macos-inspectors:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.11.29'
+      - name: Check native read-only inspectors (terminal installation remains unsupported)
+        run: >-
+          uv run --locked python -m pytest tests/test_macos.py tests/test_gpu.py
+          tests/test_views.py::test_network_selection_copies_ip_subnet_and_wrapped_link_local
+          tests/test_views.py::test_network_clipboard_targets_the_requesting_terminal
+          tests/test_views.py::test_network_keeps_multiple_subnets_and_tailscale_routes_distinct
+          tests/test_views.py::test_document_filters_and_scrolls_full_paths_and_handles_literal_controls -q
