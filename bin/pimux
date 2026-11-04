@@ -161,18 +161,21 @@ reload_config() {
     refresh_session_themes
 }
 
+# Update only PIMUX_COMMAND's target, including its session-local overrides.
+update_server_theme() {
+    local sid launcher
+    # Reload bindings on owned servers; shared servers get scoped overrides.
+    if [[ $PIMUX_SHARED_SERVER != true ]] && tmux list-sessions >/dev/null 2>&1; then
+        tmux source-file "$(theme_file)"
+    fi
+    while IFS=$'\t' read -r sid launcher; do
+        [[ -n $sid && -n $launcher ]] || continue
+        apply_session_theme "$sid"
+    done < <(tmux list-sessions -F $'#{session_id}\t#{@pimux_launcher}' 2>/dev/null || true)
+}
+
 refresh_session_themes() (
-    local sid launcher initial_socket=$PIMUX_TARGET_SOCKET primary_socket
-    update_server_theme() {
-        # Reload bindings on owned servers; shared servers get scoped overrides.
-        if [[ $PIMUX_SHARED_SERVER != true ]] && tmux list-sessions >/dev/null 2>&1; then
-            tmux source-file "$(theme_file)"
-        fi
-        while IFS=$'\t' read -r sid launcher; do
-            [[ -n $sid && -n $launcher ]] || continue
-            apply_session_theme "$sid"
-        done < <(tmux list-sessions -F $'#{session_id}\t#{@pimux_launcher}' 2>/dev/null || true)
-    }
+    local initial_socket=$PIMUX_TARGET_SOCKET primary_socket
     update_server_theme
     configure_runtime
     primary_socket=$PIMUX_TARGET_SOCKET

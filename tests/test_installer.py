@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import pty
 import select
+import shutil
 import subprocess
 import termios
 import time
@@ -34,10 +35,25 @@ p=Path(os.environ['INSTALL_STATE']); s=json.loads(p.read_text())
 with open(os.environ['INSTALL_LOG'], 'a') as f:
     f.write(json.dumps([name, *args])+'\\n')
 if name in ('tmux', 'selected-tmux'):
-    if args == ['-V']: print(s['version'] if name == 'selected-tmux' else s.get('path_version', s['version']))
-    elif args[-1:] == ['#{version}']:
-        if s['live']: print(s['live'])
+    if args == ['-V']:
+        print(s['version'] if name == 'selected-tmux' else s.get('path_version', s['version']))
+        sys.exit(0)
+    target=''
+    while args and args[0] in ('-L', '-S', '-f'):
+        if args[0] != '-f': target=args[1]
+        args=args[2:]
+    if args[-1:] == ['#{version}']:
+        live=s.get('system_live', '3.1c') if target == 'default' or target.endswith('/default') else s['live']
+        if live: print(live)
         else: sys.exit(1)
+    elif args[:1] == ['list-sessions']:
+        if '-F' in args: print('$1\\t'+str(Path(os.environ['HOME'])/'.local/bin/pimux'))
+    elif args[:1] == ['show-options']:
+        if args[-1] == '@pimux_launcher': print(str(Path(os.environ['HOME'])/'.local/bin/pimux'))
+        elif args[-1] == 'status-format[0]': print('#{E:window-status-format}')
+    elif args[:1] == ['source-file']:
+        if args[-1] == '-': sys.stdin.read()
+    elif args[:1] in (['set-option'], ['bind-key'], ['list-keys']): pass
     else: sys.exit(2)
 elif name == 'apt-cache':
     print('  Candidate: '+s['candidate'])
@@ -47,8 +63,14 @@ elif name == 'apt-get':
 elif name == 'sudo':
     os.execv(str(Path(sys.argv[0]).parent/'apt-get'), ['apt-get', *args[2:]])
 elif name == 'dpkg-query':
-    print(s[{'-W':'package_status', '-L':'files', '-S':'owner'}[args[0]]])
+    if args[0] == '--control-show':
+        if s.get('metadata_missing'): sys.exit(1)
+        print(s.get('md5sums', 'a'*32+'  usr/bin/tmux'))
+    else: print(s[{'-W':'package_status', '-L':'files', '-S':'owner'}[args[0]]])
 elif name == 'dpkg-divert': print(s['diversion'], end='')
+elif name == 'md5sum':
+    if args[-1] in ('/usr/bin/tmux', '/bin/tmux'): print(s.get('actual_md5', 'a'*32)+'  '+args[-1])
+    else: os.execv('/usr/bin/md5sum', ['md5sum', *args])
 elif name == 'readlink':
     if args[-1] in ('/usr/bin/tmux', '/bin/tmux'): print(s.get('canonical', '/usr/bin/tmux'))
     else: os.execv('/usr/bin/readlink', ['readlink', *args])
@@ -58,7 +80,7 @@ else: sys.exit(2)
 ''')
     stub.chmod(0o755)
     for name in ('tmux', 'selected-tmux', 'apt-cache', 'apt-get', 'sudo', 'dpkg-query',
-                 'dpkg-divert', 'readlink', 'infocmp', 'curl'):
+                 'dpkg-divert', 'readlink', 'infocmp', 'curl', 'md5sum'):
         (tools / name).symlink_to(stub)
     runtime = tmp_path / 'runtime.conf'
     runtime.write_text(f'{tools}/selected-tmux\ntest-installer\n{tools}/tmux\n')
@@ -70,7 +92,8 @@ else: sys.exit(2)
     env.pop('TMUX', None)
     env.pop('TMUX_PANE', None)
 
-    def run(code='install_dependencies', answer=None, managed=True, uid=0, **changes):
+    def run(code='install_dependencies', answer=None, managed=True, uid=0,
+            real_launcher=False, inherited_tmux=False, **changes):
         data.update(changes)
         state.write_text(json.dumps(data))
         log.write_text('')
@@ -81,6 +104,15 @@ else: sys.exit(2)
             prelude += 'apt_owns_tmux() { [[ $1 == "$EXPECTED_BINARY" ]]; }; '
         command = ['bash', '-c', prelude + code, 'test', str(SETUP)]
         child_env = {**env, 'EXPECTED_BINARY': str(tools / 'selected-tmux')}
+        if real_launcher:
+            launcher = tmp_path / '.local/bin/pimux'
+            launcher.unlink()
+            shutil.copy2(SOURCE / 'bin/pimux', launcher)
+            config = tmp_path / '.config/pimux'
+            shutil.copytree(SOURCE / 'lib', config)
+            shutil.copy2(SOURCE / 'config/tmux.conf', config / 'tmux.conf')
+        if inherited_tmux:
+            child_env.update(TMUX=str(tmp_path / 'old/default')+',123,0', TMUX_PANE='%9')
         if answer is None:
             # setsid guarantees /dev/tty is unavailable, even when pytest has a TTY.
             return subprocess.run(command, env=child_env, text=True, capture_output=True,
@@ -115,7 +147,8 @@ else: sys.exit(2)
                 if process.poll() is not None:
                     # Drain already emitted output before the PTY closes.
                     continue
-            assert process.poll() is not None or sent, output.decode()
+            # PTY EOF/EIO can precede waitpid's observable process exit.
+            # Reap once with a bound; timeout is still a failure, never a retry.
             result = process.wait(timeout=2)
             return subprocess.CompletedProcess(command, result, output.decode(), '')
         finally:
@@ -220,6 +253,12 @@ def test_failed_or_ineffective_upgrade_stops_installation(installer, failure, af
     ('/usr/bin/tmux', {'owner': 'tmux:arm64, another: /usr/bin/tmux'}, False),
     ('/usr/bin/tmux', {'owner': 'tmux: /usr/bin/tmux\nanother: /usr/bin/tmux'}, False),
     ('/usr/bin/tmux', {'package_status': 'deinstall ok config-files'}, False),
+    ('/usr/bin/tmux', {'package_status': 'hold ok installed'}, False),
+    ('/usr/bin/tmux', {'metadata_missing': True}, False),
+    ('/usr/bin/tmux', {'md5sums': ''}, False),
+    ('/usr/bin/tmux', {'actual_md5': 'b'*32}, False),
+    ('/bin/tmux', {'md5sums': 'a'*32+'  bin/tmux'}, True),
+    ('/usr/bin/tmux', {'md5sums': 'a'*32+'  usr/bin/tmux\n'+'a'*32+'  bin/tmux'}, False),
 ])
 def test_apt_provenance_checks_file_list_owner_and_diversions(installer, path, changes, owned):
     run, commands, _ = installer
@@ -237,8 +276,9 @@ def test_install_reload_keeps_old_or_replaced_servers_unchanged(installer, live,
     result = run(code=f'configure_runtime; PIMUX_TMUX_REPLACED={str(replaced).lower()}; reload_compatible_runtime',
                  version='tmux 3.4', live=live)
     assert result.returncode == 0, result.stdout + result.stderr
-    assert (['pimux', 'reload'] in commands()) == reloaded
-    assert not any('kill-server' in c or 'new-session' in c or 'source-file' in c for c in commands())
+    assert any('source-file' in c for c in commands()) == reloaded
+    assert not any(c[0] == 'pimux' for c in commands())
+    assert not any('kill-server' in c or 'new-session' in c for c in commands())
     assert 'Installed binary:' in result.stdout
 
 
@@ -283,3 +323,33 @@ def test_real_distro_tmux_provenance_is_read_only():
     result = subprocess.run(['bash', '-c', 'source "$1"; apt_owns_tmux "$(type -P tmux)"',
                              'test', str(SETUP)], capture_output=True, text=True)
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize('inherited_tmux,replaced', [(False, False), (True, False), (True, True)])
+def test_install_reload_uses_real_launcher_helpers_on_only_verified_target(installer, inherited_tmux, replaced):
+    run, commands, _ = installer
+    result = run(
+        code=f'configure_runtime; PIMUX_TMUX_REPLACED={str(replaced).lower()}; reload_compatible_runtime',
+        real_launcher=True, inherited_tmux=inherited_tmux,
+        version='tmux 3.4', live='3.4', system_live='3.1c',
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    native = [c for c in commands() if c[0] in ('tmux', 'selected-tmux')]
+    writes = [c for c in native if any(verb in c for verb in ('source-file', 'set-option', 'bind-key'))]
+    assert bool(writes) == (not replaced)
+    assert all(c[0] == 'selected-tmux' and c[1:3] == ['-L', 'test-installer'] for c in writes)
+    assert not any('-S' in c or 'default' in c for c in native)
+    assert not any(c[0] == 'pimux' for c in commands())  # No fake reload entry is used.
+
+
+def test_package_digest_detects_manually_replaced_binary(installer):
+    import hashlib
+    run, _, tools = installer
+    binary = tools / 'selected-tmux'
+    original = binary.read_bytes()
+    binary.unlink()
+    binary.write_bytes(original + b'\n# local replacement\n')
+    recorded = hashlib.md5(original).hexdigest() + '  usr/bin/tmux'
+    result = run(code='apt_tmux_content_matches "$EXPECTED_BINARY" /usr/bin/tmux',
+                 managed=False, md5sums=recorded)
+    assert result.returncode != 0

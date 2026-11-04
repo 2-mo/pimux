@@ -2166,3 +2166,46 @@ def test_install_checks_new_runtime_module_before_replacing_launcher(tmp_path):
     assert result.returncode != 0
     assert launcher.read_text() == old_launcher
     assert helper.read_text() == '# unrelated user file\n'
+
+
+def test_install_reload_preserves_other_server_and_its_attached_client(tmp_path, server, preview_terminals):
+    env, tmux = server
+    start, wait_for = preview_terminals
+    home = tmp_path / 'home'
+    home.mkdir()
+    assert install(home).returncode == 0
+    tmux('set-option', '-g', 'status-left', 'I-OLD')
+    tmux('set-option', '-t', 'seed', '@pimux_launcher', str(home / '.local/bin/pimux'))
+    tmux('-L', 'install-main', '-f', '/dev/null', 'new-session', '-d', '-s', 'fresh', 'sleep 60')
+    try:
+        tmux('-L', 'install-main', 'set-option', '-g', 'status-left', 'I-MAIN')
+        tmux('-L', 'install-main', 'set-option', '-t', 'fresh', '@pimux_launcher', str(home / '.local/bin/pimux'))
+        old_client = start(['tmux', 'attach-session', '-t', 'seed'], env)
+        primary_client = start(['tmux', '-L', 'install-main', 'attach-session', '-t', 'fresh'], env)
+        wait_for(lambda: b'I-OLD' in old_client[3] and b'I-MAIN' in primary_client[3])
+        old_settings = (tmux('show-options', '-g'), tmux('show-options', '-t', 'seed'), tmux('list-keys'))
+
+        def programs_and_clients(options):
+            return (
+                tmux(*options, 'list-panes', '-a', '-F', '#{pane_id}:#{pane_pid}:#{pane_dead}:#{pane_in_mode}'),
+                tmux(*options, 'list-clients', '-F', '#{client_name}:#{session_id}:#{window_id}:#{pane_id}'),
+            )
+
+        before = [programs_and_clients(options) for options in ([], ['-L', 'install-main'])]
+        Path(env['PIMUX_RUNTIME_FILE']).write_text(f"{shutil.which('tmux')}\ninstall-main\n{shutil.which('tmux')}\n")
+        inherited = dict(env, HOME=str(home),
+                         TMUX=tmux('display-message', '-p', '#{socket_path},#{pid},0'),
+                         TMUX_PANE=tmux('display-message', '-p', '-t', 'seed', '#{pane_id}'))
+        result = subprocess.run(
+            ['bash', '-c', 'source "$1"; configure_runtime; reload_compatible_runtime',
+             'test', str(SOURCE / 'scripts/setup-tmux.sh')],
+            env=inherited, capture_output=True, text=True,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert tmux('-L', 'install-main', 'show-options', '-gqv', '@pimux_theme')
+        assert tmux('-L', 'install-main', 'show-options', '-qv', '-t', 'fresh', '@pimux_launcher') == str(home / '.local/bin/pimux')
+        assert old_settings == (tmux('show-options', '-g'), tmux('show-options', '-t', 'seed'), tmux('list-keys'))
+        assert before == [programs_and_clients(options) for options in ([], ['-L', 'install-main'])]
+        assert old_client[0].poll() is None and primary_client[0].poll() is None
+    finally:
+        tmux('-L', 'install-main', 'kill-server')

@@ -138,6 +138,22 @@ installer_confirm() (
 
 installer_uid() { printf '%s\n' "$EUID"; }
 
+apt_tmux_content_matches() {
+    local binary=$1 canonical=$2 records digest path extra expected='' actual matches=0
+    records=$(dpkg-query --control-show tmux md5sums) || return 1
+    while read -r digest path extra; do
+        [[ $path == usr/bin/tmux || $path == bin/tmux ]] || continue
+        [[ $(readlink -f -- "/$path") == "$canonical" ]] || continue
+        [[ $digest =~ ^[0-9a-fA-F]{32}$ && -z $extra ]] || return 1
+        expected=$digest
+        matches=$((matches + 1))
+    done <<< "$records"
+    (( matches == 1 )) || return 1
+    actual=$(md5sum -- "$binary") || return 1
+    actual=${actual%% *}
+    [[ $actual == "$expected" ]]
+}
+
 apt_owns_tmux() {
     local binary=$1 canonical listed files owner diversion path
     # Custom launchers/symlinks are user-managed, even if they eventually run apt's tmux.
@@ -156,7 +172,8 @@ apt_owns_tmux() {
             diversion=$(dpkg-divert --list "$path") || return 1
             [[ -z $diversion ]] || return 1
         done
-        return 0
+        apt_tmux_content_matches "$binary" "$canonical"
+        return
     done <<< "$files"
     return 1
 }
@@ -217,7 +234,7 @@ install_dependencies() {
         }
     done
     if [[ $upgrade == true ]] && ! apt_owns_tmux "$binary"; then
-        printf 'Cannot prove that apt owns %s without a diversion or custom path. Upgrade it through its original source, or explicitly update runtime.conf to a supported binary.\n' "$binary" >&2
+        printf 'Cannot prove that apt owns %s with unchanged package content and no diversion or custom path. Upgrade it through its original source, or explicitly update runtime.conf to a supported binary.\n' "$binary" >&2
         installer_next_step
         return 1
     fi
@@ -264,21 +281,25 @@ install_dependencies() {
     [[ -z $missing ]] || { printf 'Dependencies still missing: %s\n' "$missing" >&2; return 1; }
 }
 
-reload_compatible_runtime() {
+reload_compatible_runtime() (
     local disk live
     disk=$("${PIMUX_COMMAND[0]}" -V) || return 1
     printf 'Installed binary: %s (%s)\n' "${PIMUX_COMMAND[0]}" "$disk"
     if live=$(tmux display-message -p '#{version}' 2>/dev/null); then
         printf 'Running server: tmux %s\n' "$live"
         if [[ ${PIMUX_TMUX_REPLACED:-false} == false && $disk == "tmux $live" ]] && pimux_tmux_version_supported "$disk"; then
-            "$HOME/.local/bin/pimux" reload
+            # The interactive reload command follows TMUX and visits other runtimes.
+            # These launcher helpers retain exactly the command array checked above.
+            PIMUX_LAUNCHER="$HOME/.local/bin/pimux"
+            update_server_language
+            update_server_theme
         else
             printf 'Existing server kept unchanged. Updating the binary does not upgrade a running server. Keep your work; start a new server after its sessions finish naturally.\n'
         fi
     else
         printf 'No server version could be read; no running server was reloaded. New servers use the installed configuration.\n'
     fi
-}
+)
 
 main() {
     if [[ $# != 0 ]]; then
