@@ -7,7 +7,7 @@ import signal
 import sys
 import time
 
-from rich.console import Console
+from theme import ThemeConsole
 from rich.console import Group
 from rich.cells import cell_len
 from rich.live import Live
@@ -17,7 +17,7 @@ from rich.text import Text
 TITLE_STYLE = "bold #b7a1e8"
 SELECTED_STYLE = "on #272b34"
 MUTED_STYLE = "dim #9ca3af"
-console = Console()
+console = ThemeConsole()
 
 
 def tr(english, chinese):

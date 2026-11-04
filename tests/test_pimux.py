@@ -113,7 +113,7 @@ def test_install_exposes_short_command_and_preserves_user_settings(tmp_path):
     assert os.access(home / '.local/bin/pimux', os.X_OK)
     config = home / '.config/pimux'
     assert (config / 'macos.py').read_bytes() == (SOURCE / 'lib/macos.py').read_bytes()
-    for module in ('hosts.py', 'host_snapshot.py', 'ssh_discovery.py', 'ssh_hop.py', 'access_preview.py', 'access_setup.py', 'access_agent.py', 'access_identity.py', 'access_transport.py', 'ssh_askpass.py'):
+    for module in ('theme.py', 'hosts.py', 'host_snapshot.py', 'ssh_discovery.py', 'ssh_hop.py', 'access_preview.py', 'access_setup.py', 'access_agent.py', 'access_identity.py', 'access_transport.py', 'ssh_askpass.py'):
         assert (config / module).read_bytes() == (SOURCE / 'lib' / module).read_bytes()
     theme = config / 'tmux.conf'
     theme.write_text('# pimux-managed: previous theme\n')

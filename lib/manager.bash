@@ -330,7 +330,7 @@ manager() (
                 stty "$terminal_mode"
                 suggestion=$(printf '%s' "${PWD##*/}" | sed 's/[.:$#{}[:cntrl:]]/-/g; s/^-*//')
                 name=''; IFS= read -er -i "${suggestion:-work}" \
-                    -p $'\001\033[38;2;99;197;248m\002'"$(tr_ui ' 会话名称（Enter 确认，清空取消）：')"$'\001\033[0m\002' name || name=''
+                    -p $'\001\033[1m\002'"$(tr_ui ' 会话名称（Enter 确认，清空取消）：')"$'\001\033[0m\002' name || name=''
                 stty -icanon -echo min 1 time 0
                 printf '\033[?25l\033[?1000h\033[?1006h'
                 [[ -n $name ]] || continue
@@ -354,7 +354,7 @@ manager() (
             x)
                 (( count > 0 )) || continue
                 sid=${roots[selected]}; wid=${windows[selected]}
-                printf '\033[%s;1H\033[2K\033[38;2;255;175;95m' "$rows"
+                printf '\033[%s;1H\033[2K\033[1m' "$rows"
                 pane=${panes[selected]}
                 if [[ -n $pane ]]; then
                     printf_ui ' 关闭分屏 %s 及其中的程序，影响所有连接？[y/N] ' "${pane_indices[selected]}"
