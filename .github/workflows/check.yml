@@ -21,8 +21,6 @@ jobs:
         run: bash scripts/package.sh
   macos-terminal:
     runs-on: macos-14
-    env:
-      UV_CACHE_DIR: ${{ runner.temp }}/pimux-uv-cache
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -31,6 +29,8 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           version: '0.11.29'
+      - name: Keep dependency cache outside isolated test homes
+        run: echo "UV_CACHE_DIR=$RUNNER_TEMP/pimux-uv-cache" >> "$GITHUB_ENV"
       - name: Build pinned removable native Bash and tmux
         run: |
           python scripts/build-macos-runtime.py "$RUNNER_TEMP/pimux-native-runtime"
