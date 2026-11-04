@@ -1,4 +1,5 @@
 # pimux-managed: apply literal environment defaults inside PiMux Bash shells.
+source "$(dirname -- "${BASH_SOURCE[0]}")/runtime.bash"
 pimux_environment_python() {
     local directory="$(dirname -- "${BASH_SOURCE[0]}")"
     local python="$HOME/.local/share/pimux/venv/bin/python"
@@ -13,7 +14,7 @@ pimux_apply_environment() {
     local PIMUX_ENV_FILE_STATE PIMUX_ENV_RECORD PIMUX_ENV_KEY PIMUX_ENV_MODE PIMUX_ENV_VALUE PIMUX_ENV_ATTRIBUTES
     local -a PIMUX_ENV_RECORDS=()
     local -A PIMUX_ENV_PRESENT=()
-    if [[ -f $PIMUX_ENV_PATH ]]; then PIMUX_ENV_FILE_STATE=$(stat -Lc '%i:%s:%y' -- "$PIMUX_ENV_PATH" 2>/dev/null) || return 0
+    if [[ -f $PIMUX_ENV_PATH ]]; then PIMUX_ENV_FILE_STATE=$(pimux_signature "$PIMUX_ENV_PATH" 2>/dev/null) || return 0
     else PIMUX_ENV_FILE_STATE=absent; fi
     [[ ${1:-} == force || ${PIMUX_ENV_SIGNATURE:-} != "$PIMUX_ENV_FILE_STATE" ]] || return 0
     while IFS= read -r -d '' PIMUX_ENV_RECORD; do PIMUX_ENV_RECORDS+=("$PIMUX_ENV_RECORD"); done < <(pimux_environment_python __emit 2>/dev/null)
@@ -71,6 +72,6 @@ pimux_environment_shell_init() {
     PROMPT_COMMAND+=(pimux_environment_prompt)
     pimux_apply_environment
     if [[ -n ${TMUX:-} && -n ${TMUX_PANE:-} ]]; then
-        command tmux -S "${TMUX%%,*}" set-option -p -t "$TMUX_PANE" @pimux_environment_ready on 2>/dev/null || true
+        command "${PIMUX_TMUX:-tmux}" -S "${TMUX%%,*}" set-option -p -t "$TMUX_PANE" @pimux_environment_ready on 2>/dev/null || true
     fi
 }

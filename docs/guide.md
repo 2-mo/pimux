@@ -43,7 +43,7 @@ pimux proxy           # Open proxy settings directly
 pimux help            # Searchable help
 pimux doctor          # Version, tmux, color and clipboard diagnostics
 pimux reload          # Reload without restarting tasks
-pimux update          # Install the latest release without restarting tasks
+pimux update          # Linux release update; Mac preview: reinstall source
 pimux --version
 ```
 
@@ -158,7 +158,7 @@ The status bar refreshes on a five-second timer; window changes and other redraw
 
 ## Compatibility and existing tmux sessions
 
-This release supports Linux with Bash 4+, tmux 3.2+, coreutils, grep, sed, util-linux and the `tmux-256color` terminfo entry. The installer handles dependencies on Debian/Ubuntu. On other Linux distributions, install those prerequisites using your system package manager. macOS and native Windows are not currently supported; Windows users can use a Linux environment through WSL or SSH.
+The download installer targets Linux. The launcher guard requires Bash 4.2+, but full interaction is verified on Ubuntu 24.04 with Bash 5.2 and tmux 3.4; Bash 4.2 is not certified for the complete interface. Other prerequisites include tmux 3.2+, Python 3.10+, coreutils, grep, sed, util-linux, iproute2, OpenSSH client, curl and `tmux-256color` terminfo. Debian/Ubuntu installation handles terminal dependencies. macOS has a separate [source preview](macos.md), including [multi-server CLI inspection](hosts.md), with its own runtime requirements and limits. Native Windows is unimplemented; a Linux environment via WSL or SSH is separate from native support.
 
 The tmux 3.2 minimum comes from popups, status formats and client-targeted clipboard support. Prefer your distribution's matching tmux/ncurses packages: Ubuntu 22.04's tmux 3.2a with ncurses 6.3 passed the focused terminal checks. Old tmux source builds linked to newer ncurses can crash during clipboard copying; this [upstream issue](https://github.com/tmux/tmux/issues/3699) was addressed in tmux 3.4. A version check cannot certify a custom build's library combination. Use a distribution fix or rebuild with the upstream compatibility fix; PiMux does not redirect clipboard output to another client as a workaround.
 
@@ -170,7 +170,7 @@ Choose **Copy current directory path** in `Ctrl-a h`, or press `Ctrl-a y`. The p
 
 ## Update and uninstall
 
-Run `pimux update`, or open `Ctrl-a h` and choose **Update PiMux**. The updater downloads the latest release, verifies its checksum, preserves language/runtime preferences and backs up changed managed files. It reports the installed binary and running server versions separately. Automatic reload only targets the configured server whose supported version matches the binary, and only when this installation did not replace tmux. It does not follow an inherited `TMUX` environment or reload a secondary system server. An older, unqueryable or just-upgraded server is left unchanged: replacing the binary does not upgrade a running process. Keep its sessions until your work finishes naturally; the installer does not kill or restart them. The install command also works for updating older versions that do not have the update command. `pimux reload` and `Ctrl-a r` remain explicit reload commands, including local status overrides in connected PiMux views.
+For a Homebrew installation, use `brew upgrade pimux-preview`. Reinstall source previews from the chosen checkout. On Linux, run `pimux update`, or open `Ctrl-a h` and choose **Update PiMux**. The updater downloads the latest release, verifies its checksum, preserves language/runtime preferences and backs up changed managed files. It reports the installed binary and running server versions separately. Automatic reload only targets the configured server whose supported version matches the binary, and only when this installation did not replace tmux. It does not follow an inherited `TMUX` environment or reload a secondary system server. An older, unqueryable or just-upgraded server is left unchanged: replacing the binary does not upgrade a running process. Keep its sessions until your work finishes naturally; the installer does not kill or restart them. The install command also works for updating older versions that do not have the update command. `pimux reload` and `Ctrl-a r` remain explicit reload commands, including local status overrides in connected PiMux views.
 
 ```bash
 pimux uninstall

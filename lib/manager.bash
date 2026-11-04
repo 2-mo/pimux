@@ -16,7 +16,7 @@ toggle_session_pin() (
     [[ ! $name =~ [[:cntrl:]] ]] || return 1
     mkdir -p -- "$(dirname -- "$file")"
     exec 9>"${file}.lock"
-    flock 9
+    pimux_lock 9
     temporary=$(mktemp "${file}.new.XXXXXX")
     trap 'rm -f -- "$temporary"' EXIT
     if [[ -f $file ]]; then

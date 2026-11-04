@@ -53,7 +53,7 @@ if name in ('tmux', 'selected-tmux'):
         elif args[-1] == 'status-format[0]': print('#{E:window-status-format}')
     elif args[:1] == ['source-file']:
         if args[-1] == '-': sys.stdin.read()
-    elif args[:1] in (['set-option'], ['bind-key'], ['list-keys']): pass
+    elif args[:1] in (['set-option'], ['set-environment'], ['bind-key'], ['list-keys']): pass
     else: sys.exit(2)
 elif name == 'apt-cache':
     print('  Candidate: '+s['candidate'])
@@ -327,7 +327,7 @@ def test_real_distro_tmux_provenance_is_read_only():
 
 @pytest.mark.parametrize('inherited_tmux,replaced', [(False, False), (True, False), (True, True)])
 def test_install_reload_uses_real_launcher_helpers_on_only_verified_target(installer, inherited_tmux, replaced):
-    run, commands, _ = installer
+    run, commands, tools = installer
     result = run(
         code=f'configure_runtime; PIMUX_TMUX_REPLACED={str(replaced).lower()}; reload_compatible_runtime',
         real_launcher=True, inherited_tmux=inherited_tmux,
@@ -335,8 +335,13 @@ def test_install_reload_uses_real_launcher_helpers_on_only_verified_target(insta
     )
     assert result.returncode == 0, result.stdout + result.stderr
     native = [c for c in commands() if c[0] in ('tmux', 'selected-tmux')]
-    writes = [c for c in native if any(verb in c for verb in ('source-file', 'set-option', 'bind-key'))]
+    writes = [c for c in native if any(verb in c for verb in ('source-file', 'set-option', 'set-environment', 'bind-key'))]
     assert bool(writes) == (not replaced)
+    environment_writes = [c for c in writes if 'set-environment' in c]
+    assert bool(environment_writes) == (not replaced)
+    assert {c[-2] for c in environment_writes} == ({'PIMUX_BASH', 'PIMUX_TMUX'} if not replaced else set())
+    assert all(Path(c[-1]).is_absolute() for c in environment_writes)
+    assert all(c[-1] == str(tools / 'selected-tmux') for c in environment_writes if c[-2] == 'PIMUX_TMUX')
     assert all(c[0] == 'selected-tmux' and c[1:3] == ['-L', 'test-installer'] for c in writes)
     assert not any('-S' in c or 'default' in c for c in native)
     assert not any(c[0] == 'pimux' for c in commands())  # No fake reload entry is used.

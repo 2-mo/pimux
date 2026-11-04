@@ -4,9 +4,11 @@
 import argparse
 from pathlib import Path
 import subprocess
+import sys
 
 from gpu_ui import MUTED_STYLE, tr
 from inspect_ui import Document, text
+from host_runtime import process_cwd
 
 
 def window_blocks(binary, socket, target):
@@ -45,8 +47,8 @@ def window_blocks(binary, socket, target):
                 style = "yellow"
             if not cwd:
                 try:
-                    cwd = str(Path(f"/proc/{pid}/cwd").readlink())
-                except OSError:
+                    cwd = process_cwd(pid) if sys.platform == "darwin" else str(Path(f"/proc/{pid}/cwd").readlink())
+                except (OSError, ValueError):
                     pass
         lines = [text(f"{pane} · PID {pid} · {program}", "bold #63c5f8"), text(state, style),
                  text(tr("Cwd: ", "目录：") + (cwd or tr("unavailable", "不可见")), MUTED_STYLE),

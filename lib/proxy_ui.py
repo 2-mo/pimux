@@ -18,13 +18,9 @@ from proxy_status import process_proxy_state
 
 def backend(action, mode="", url=""):
     launcher = os.environ.get("PIMUX_LAUNCHER", str(Path(__file__).resolve().parents[1] / "bin/pimux"))
-    script = 'source "$1"; load_proxy; '
-    if action == "read":
-        script += 'pimux_proxy_read || exit 1; printf "%s\\n%s\\n" "$PIMUX_PROXY_MODE" "$PIMUX_PROXY_URL"'
-    else:
-        script += 'IFS= read -r url || true; pimux_proxy_save "$2" "$url"'
+    command = [launcher, "__proxy-read"] if action == "read" else [launcher, "__proxy-save", mode]
     try:
-        result = subprocess.run(["bash", "-c", script, "proxy-ui", launcher, mode],
+        result = subprocess.run(command,
                                 input=url + "\n", capture_output=True, text=True, timeout=3)
     except subprocess.TimeoutExpired:
         raise RuntimeError(tr("Settings could not be read or saved. Try again.", "设置读取或保存超时，请重试。")) from None

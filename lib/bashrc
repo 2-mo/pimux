@@ -4,6 +4,14 @@ case $- in
     *) return ;;
 esac
 
+source "$(dirname -- "${BASH_SOURCE[0]}")/runtime.bash"
+# User rc files and tmux clients may reset PATH. Restore the selected runtimes
+# before prompt hooks call tmux, including when Bash and tmux live separately.
+if [[ ${PIMUX_TMUX:-} == /* && -x $PIMUX_TMUX ]]; then
+    export PATH="${PIMUX_TMUX%/*}:$PATH"
+fi
+pimux_bootstrap "${BASH_SOURCE[0]}" || return
+
 case ":$PATH:" in
     *":$HOME/.local/bin:"*) ;;
     *) export PATH="$HOME/.local/bin:$PATH" ;;
@@ -11,6 +19,9 @@ esac
 
 if command -v starship >/dev/null 2>&1; then
     export STARSHIP_CONFIG="$HOME/.config/pimux/starship.toml"
+    if [[ -f $(dirname -- "${BASH_SOURCE[0]}")/../config/starship.toml ]]; then
+        export STARSHIP_CONFIG="$(dirname -- "${BASH_SOURCE[0]}")/../config/starship.toml"
+    fi
     # STARSHIP_SHELL is inherited by tmux and nested shells; functions are not.
     if ! declare -F starship_precmd >/dev/null; then
         eval "$(starship init bash)"

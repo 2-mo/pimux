@@ -14,6 +14,8 @@ The first call builds the environment; Docker reuses its layers on later calls. 
 
 Tests must be specified explicitly. Actions passes the test files listed in `.github/workflows/check.yml`, then builds the release archive. `tests/test_tmux_passthrough.py` checks argument, byte-stream and cancellation forwarding with an isolated native-command stand-in; the real tmux lifecycle checks remain in `tests/test_pimux.py`. Installer tests stub package managers and use isolated PTYs for confirmation; they never upgrade the test host. Documentation-only changes retain the workflow's skip rules. No retry or failure-suppression step is used.
 
+The macOS job builds pinned Bash/tmux into a removable directory and runs the terminal, inspector and isolated source-installation tests. Homebrew has a separate hosted-Mac package lifecycle gate. See [macOS scope and checks](macos.md).
+
 When changing interactions, select the relevant keyboard, mouse or client-targeting regressions. Avoid assertions about incidental help text, exact rendered rows or version-dependent native formatting; verify the operation and its target instead.
 
 These tools require Docker for development checks; the installed `pimux` command uses its normal terminal dependencies.

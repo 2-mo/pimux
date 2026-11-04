@@ -43,7 +43,7 @@ pimux proxy           # 直接打开代理设置面板
 pimux help            # 可搜索的帮助页
 pimux doctor          # 版本、颜色、剪贴板诊断
 pimux reload          # 热重载，不重启任务
-pimux update          # 更新到最新版，保留运行中的任务
+pimux update          # Linux 更新发布版；Mac 预览请从源码重新安装
 pimux --version
 ```
 
@@ -158,7 +158,7 @@ pimux proxy reset                      # 恢复 shell 的启动环境
 
 ## 环境和已有会话
 
-支持 Linux，要求 Bash 4+、tmux 3.2+、coreutils、grep、sed、util-linux，以及 `tmux-256color` terminfo。Debian/Ubuntu 上由安装器补齐；其他 Linux 发行版通过系统包管理器安装这些依赖。暂不支持 macOS 或原生 Windows；Windows 可通过 WSL 的 Linux 环境或 SSH 使用。
+下载安装器面向 Linux。启动器门槛是 Bash 4.2+，完整交互实际在 Ubuntu 24.04 的 Bash 5.2 / tmux 3.4 上验证，不能据此声称完整界面支持 Bash 4.2。其他依赖包括 tmux 3.2+、Python 3.10+、coreutils、grep、sed、util-linux、iproute2、OpenSSH 客户端、curl 与 `tmux-256color` terminfo；Debian/Ubuntu 安装器会补齐终端依赖。macOS 有独立的[源码预览](macos.md)及[多服务器 CLI 查看](hosts.md)，依赖和边界见相应文档。尚无原生 Windows 实现；WSL 或 SSH 中的 Linux 环境不等于原生支持。
 
 tmux 3.2 下限来自弹窗、状态栏格式和定向剪贴板功能。优先使用发行版配套的 tmux/ncurses 包：Ubuntu 22.04 的 tmux 3.2a 与 ncurses 6.3 已通过针对性的真实终端检查。旧 tmux 源码搭配较新的 ncurses 编译，可能在复制时崩溃；这个[上游问题](https://github.com/tmux/tmux/issues/3699)已在 tmux 3.4 处理。版本检查不能保证自编译程序的库组合正确，应使用发行版修复或包含上游兼容补丁的构建；PiMux 不会通过把剪贴板发给其他客户端来规避问题。
 
@@ -170,7 +170,7 @@ tmux 3.2 下限来自弹窗、状态栏格式和定向剪贴板功能。优先�
 
 ## 更新与卸载
 
-运行 `pimux update`，或者通过 `Ctrl-a h` 菜单选择“更新 PiMux”。更新器下载最新发布包并校验，保留语言和运行配置，变化的受管文件会先备份；分别报告磁盘二进制与运行中 server 的版本。仅当两者版本一致、满足要求且本次没有替换 tmux 时，自动重载已核验的配置目标。安装器不会跟随继承的 `TMUX` 环境切换目标，也不会连带重载其他 system server。旧版本、无法查询版本或本次刚升级对应的 server 保持原样：替换磁盘程序不会升级运行中的进程。保留会话，待工作自然完成后再启动新 server；安装器不会终止或重启它们。尚无更新命令的旧版本，重新运行一次安装命令即可升级。`pimux reload` 与 `Ctrl-a r` 仍是显式重载命令，也会更新已连接视图中的局部状态栏配置。
+Homebrew 安装使用 `brew upgrade pimux-preview`；源码预览从选定工作区重新安装。Linux 上可运行 `pimux update`，或者通过 `Ctrl-a h` 菜单选择“更新 PiMux”。更新器下载最新发布包并校验，保留语言和运行配置，变化的受管文件会先备份；分别报告磁盘二进制与运行中 server 的版本。仅当两者版本一致、满足要求且本次没有替换 tmux 时，自动重载已核验的配置目标。安装器不会跟随继承的 `TMUX` 环境切换目标，也不会连带重载其他 system server。旧版本、无法查询版本或本次刚升级对应的 server 保持原样：替换磁盘程序不会升级运行中的进程。保留会话，待工作自然完成后再启动新 server；安装器不会终止或重启它们。尚无更新命令的旧版本，重新运行一次安装命令即可升级。`pimux reload` 与 `Ctrl-a r` 仍是显式重载命令，也会更新已连接视图中的局部状态栏配置。
 
 ```bash
 pimux uninstall

@@ -8,7 +8,7 @@ python_view() {
     # Source checkouts use the development environment managed by uv.
     [[ ! -x $development ]] || python=$development
     if [[ ! -x $python ]]; then
-        printf '%s\n' "$(tr_ui '界面的运行环境未就绪，请运行 pimux update 完成安装。')" >&2
+        printf '%s\n' "$(tr_ui '界面运行环境未就绪。Linux 请运行 pimux update；Mac 请按安装来源重新安装。')" >&2
         return 1
     fi
     export PIMUX_LANGUAGE PIMUX_LAUNCHER
