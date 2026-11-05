@@ -3,9 +3,9 @@ class PimuxPreview < Formula
 
   desc "Native terminal and explicit multi-server CLI source preview"
   homepage "https://github.com/2-mo/pimux"
-  url "https://github.com/2-mo/pimux/releases/download/v1.0.0-beta.1/pimux-source.tar.gz"
-  version "1.0.0-beta.1"
-  sha256 "777382e34a92ef97913a3f73d7cafb3820b42b42f02b38a91f8a8f5fbe1fdc0d"
+  url "https://github.com/2-mo/pimux/releases/download/v1.0.0-beta.2/pimux-source.tar.gz"
+  version "1.0.0-beta.2"
+  sha256 "3fe8b8a62a29d144f14f7fbdc37b1704eb4212c1181d2f5361d160efdbe18f33"
   license "Apache-2.0"
   revision 1
 
@@ -63,7 +63,7 @@ class PimuxPreview < Formula
     system formula_opt_bin("bash")/"bash", "-c", version_check,
            "pimux-check", libexec/"lib/tmux_compat.bash", formula_opt_bin("tmux")/"tmux"
     (libexec/".pimux-homebrew").write "pimux-preview\n"
-    (libexec/"source-commit").write "48672332c158b027bdf91090e40a4533cfbbca8d" + "\n"
+    (libexec/"source-commit").write "133011a2533be8849061c92bdb9e2109781ade2a" + "\n"
     pkgshare.install "docs", "packaging/homebrew/README.md"
 
     python = formula_opt_bin("python@3.14")/"python3.14"
@@ -94,7 +94,7 @@ class PimuxPreview < Formula
 
   def caveats
     <<~EOS
-      This is the PiMux 1.0.0-beta.1 Mac foundation prerelease.
+      This is the PiMux 1.0.0-beta.2 Mac foundation prerelease.
       Local terminal and multi-server CLI snapshots are available; remote session
       attachment/actions and a unified multi-server TUI are not implemented.
       No shell startup files or existing PiMux installation were changed.
@@ -113,7 +113,7 @@ class PimuxPreview < Formula
     sockets = testpath/"sockets"
     sockets.mkdir
     ENV["TMUX_TMPDIR"] = sockets
-    assert_match "1.0.0-beta.1", shell_output("#{bin}/pimux --version")
+    assert_match "1.0.0-beta.2", shell_output("#{bin}/pimux --version")
     system libexec/".venv/bin/python", "-I", "-c", "import blessed, rich; print('runtime ready')"
     assert_match '"candidates": []', shell_output("#{bin}/pimux hosts discover --json")
     system bin/"pimux", "doctor"
