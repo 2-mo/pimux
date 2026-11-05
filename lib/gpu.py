@@ -6,14 +6,17 @@
 import argparse
 import csv
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import io
 import math
+import json
+import plistlib
 from pathlib import Path
 import shlex
 import subprocess
 import sys
 import time
+from xml.parsers.expat import ExpatError
 
 from rich.console import Group
 from rich.table import Column, Table
@@ -38,6 +41,9 @@ class GPU:
     temperature: float | None
     power_draw: float | None
     power_limit: float | None
+    backend: str = "nvidia"
+    unified_memory: bool = False
+    cores: int | None = None
 
     @property
     def memory_percent(self):
@@ -72,17 +78,116 @@ def parse_gpus(output):
     return rows
 
 
+# Identity is slow to collect and static on Apple Silicon. Refresh occasionally,
+# but never cache utilization or turn a failed telemetry read into a zero sample.
+_mac_identity_cache = None
+
+
+def parse_macos_gpus(output):
+    """Read actual GPU models, not attached display names or CPU brand strings."""
+    try:
+        document = json.loads(output)
+        entries = document["SPDisplaysDataType"]
+        if not isinstance(entries, list):
+            raise ValueError("expected display adapter list")
+        rows = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                raise ValueError("invalid display adapter")
+            name = entry.get("sppci_model")
+            if not isinstance(name, str) or not name.strip():
+                raise ValueError("missing GPU model")
+            apple = entry.get("spdisplays_vendor") == "sppci_vendor_Apple"
+            core_value = entry.get("sppci_cores")
+            cores = (int(core_value) if isinstance(core_value, (str, int))
+                     and not isinstance(core_value, bool) and str(core_value).isdigit()
+                     and int(core_value) > 0 else None)
+            rows.append(GPU(len(rows), name.strip(), None, None, None, None, None, None,
+                            backend="macos", unified_memory=apple, cores=cores))
+        return rows
+    except (ValueError, KeyError, TypeError) as exc:
+        raise GPUReadError(tr("Could not parse macOS GPU identity", "无法解析 macOS 显卡信息")) from exc
+
+
+def parse_apple_utilization(output):
+    """Optional AGX driver counter, not a guaranteed macOS telemetry API.
+
+    Accept only a single accelerator's numeric percent. Never sum duplicate
+    nodes, infer load from memory, or report absent/invalid counters as idle.
+    """
+    try:
+        entries = plistlib.loads(output.encode() if isinstance(output, str) else output)
+        if not isinstance(entries, list) or len(entries) != 1:
+            return None
+        stats = entries[0].get("PerformanceStatistics")
+        if not isinstance(stats, dict):
+            return None
+        value = stats.get("Device Utilization %")
+        if (type(value) in (int, float) and math.isfinite(value) and 0 <= value <= 100):
+            return float(value)
+    except (ValueError, TypeError, AttributeError, OverflowError, ExpatError):
+        pass
+    return None
+
+
+def query_macos_gpus():
+    """Native, unprivileged identity plus best-effort Apple driver utilization.
+
+    system_profiler's structured identity is documented by Apple:
+    https://education.apple.com/story/250015353
+    AGX PerformanceStatistics is driver-dependent (see simonw/gpuer's native
+    readGPUStats implementation). No private framework or root access is used.
+    Unified memory is not VRAM; no capacity, process-memory, power or temperature
+    numbers are inferred from it.
+    """
+    global _mac_identity_cache
+    now = time.monotonic()
+    if _mac_identity_cache is None or now - _mac_identity_cache[0] >= 60:
+        try:
+            result = subprocess.run(
+                ["/usr/sbin/system_profiler", "SPDisplaysDataType", "-json"],
+                capture_output=True, text=True, timeout=3, check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise GPUReadError(tr("macOS GPU identity unavailable or timed out (3 seconds)",
+                                  "macOS 显卡信息不可用或读取超时（3 秒）")) from exc
+        if result.returncode:
+            raise GPUReadError(tr("macOS GPU identity query failed", "macOS 显卡信息读取失败"))
+        cards = parse_macos_gpus(result.stdout)
+        _mac_identity_cache = (now, tuple(cards))
+    cards = list(_mac_identity_cache[1])
+    apple = [card for card in cards if card.unified_memory]
+    if len(apple) == 1:
+        utilization = None
+        try:
+            result = subprocess.run(
+                ["/usr/sbin/ioreg", "-a", "-r", "-c", "AGXAccelerator", "-d", "1"],
+                capture_output=True, text=True, timeout=1, check=False,
+            )
+            if not result.returncode:
+                utilization = parse_apple_utilization(result.stdout)
+        except (OSError, subprocess.TimeoutExpired):
+            pass  # Keep the identified GPU visible even when counters are hidden.
+        cards = [replace(card, utilization=utilization) if card is apple[0] else card
+                 for card in cards]
+    return cards
+
+
 def query_gpus():
     """Take one bounded snapshot without creating processes or state beyond the query."""
+    if sys.platform == "darwin":
+        return query_macos_gpus()
+    return query_nvidia_gpus()
+
+
+def query_nvidia_gpus():
+    """Read one NVIDIA snapshot independently of the host platform."""
     try:
         result = subprocess.run(
             ["nvidia-smi", f"--query-gpu={_FIELDS}", "--format=csv,noheader,nounits"],
             capture_output=True, text=True, timeout=3, check=False,
         )
     except FileNotFoundError as exc:
-        if sys.platform == "darwin":
-            raise GPUReadError(tr("NVIDIA telemetry unavailable; Apple GPU metrics are not supported.",
-                                  "NVIDIA 遥测不可用；尚不支持 Apple GPU 指标。")) from exc
         raise GPUReadError(tr("NVIDIA driver tool nvidia-smi was not found", "未找到 NVIDIA 驱动工具 nvidia-smi")) from exc
     except subprocess.TimeoutExpired as exc:
         raise GPUReadError(tr("GPU query timed out (3 seconds)", "显卡读取超时（3 秒）")) from exc
@@ -123,6 +228,14 @@ def _process_details(pid):
 
 def query_processes(index):
     """Read compute processes and available command paths for the selected GPU."""
+    if sys.platform == "darwin":
+        raise GPUReadError(tr("Per-process GPU memory is unavailable on macOS",
+                              "macOS 下无法获取每进程 GPU 内存"))
+    return query_nvidia_processes(index)
+
+
+def query_nvidia_processes(index):
+    """Read NVIDIA compute processes independently of the host platform."""
     try:
         result = subprocess.run(
             ["nvidia-smi", "-i", str(index),
@@ -254,7 +367,7 @@ class Monitor:
         self.process_gpu = None
         self.processes = []
         self.process_error = None
-        if self.details and self.gpus:
+        if self.details and self.gpus and self.gpus[self.selected].backend != "macos":
             self.process_gpu = self.gpus[self.selected].index
             try:
                 self.processes = query_processes(self.process_gpu)
@@ -300,6 +413,8 @@ class Monitor:
         return False
 
     def _layout(self, width):
+        if any(gpu.backend == "macos" for gpu in self.gpus):
+            return 1, min(40, max(1, width))
         columns = 1 if self.compact else min(4, max(1, (width + 1) // 16))
         tile_width = min(15, max(1, width))
         return columns, tile_width
@@ -314,6 +429,26 @@ class Monitor:
         if not self.details or not self.gpus:
             return []
         gpu = self.gpus[self.selected]
+        if gpu.backend == "macos":
+            lines = [Text(f"GPU {gpu.index} · {gpu.name}", style=MUTED_STYLE)]
+            if gpu.cores is not None:
+                lines.append(Text(tr("GPU cores: ", "GPU 核心数：") + str(gpu.cores), style=MUTED_STYLE))
+            if gpu.unified_memory:
+                lines.append(Text(tr("Unified memory shared with CPU; no dedicated VRAM",
+                                     "与 CPU 共享统一内存；无独立显存"), style=MUTED_STYLE))
+            lines.extend([
+                Text(tr("Utilization: native driver counter (when available)",
+                        "利用率：原生驱动计数器（如可用）"), style=MUTED_STYLE),
+                Text(tr("GPU memory, temperature, power and processes: unavailable",
+                        "GPU 内存、温度、功耗及进程数据：不可用"), style=MUTED_STYLE),
+            ])
+            if gpu.utilization is None:
+                lines.append(Text(tr("Utilization unavailable; GPU detected",
+                                     "利用率不可用；已检测到 GPU"), style=MUTED_STYLE))
+            if width is None:
+                return lines
+            return [part for line in lines for part in line.wrap(console, max(1, width),
+                                                                 overflow="fold", no_wrap=False)]
         lines = [
             Text(f"GPU {gpu.index} · {gpu.name}", style=MUTED_STYLE),
             Text(_capacity(gpu), style=MUTED_STYLE),
@@ -354,6 +489,13 @@ class Monitor:
         memory.append(" ")
         memory.append_text(label)
         lines = [title, trend, memory]
+        if gpu.backend == "macos":
+            title = Text(("›" if selected else " ") + gpu.name)
+            load = Text(tr("GPU load ", "GPU 利用率 "), style=MUTED_STYLE)
+            load.append_text(_utilization(gpu.utilization))
+            memory = Text(tr("Unified memory · shared", "统一内存 · 共享") if gpu.unified_memory else
+                          tr("Telemetry unavailable", "遥测不可用"), style=MUTED_STYLE)
+            lines = [title, load, memory]
         for line in lines:
             line.truncate(width, overflow="ellipsis")
             line.pad_right(width - line.cell_len)

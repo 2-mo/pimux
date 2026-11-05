@@ -38,6 +38,16 @@ pimux
 - Inside a session: press and release `Ctrl-a`, then `-` / `v` to split top/bottom or left/right, `h` for the menu, or `d` to detach and keep tasks running.
 - Let your agent organize experiment terminals with `pimux tmux`: [background management](docs/agents.md).
 
+## Terminal contrast
+
+PiMux uses your terminal’s normal foreground when its background is unknown, so light and dark profiles both stay readable. Outside tmux, `auto` also accepts a conventional `COLORFGBG` light/dark palette hint; this is not an exact background measurement. Inside tmux that hint is ignored because the server may have inherited it from a different client. No terminal queries are sent and no keyboard input is consumed.
+
+- `pimux theme` shows the preference, resolved palette and source.
+- `pimux theme light` or `pimux theme dark` saves an explicit palette; `pimux theme auto` restores automatic/default-foreground behavior.
+- `PIMUX_THEME=light pimux` overrides the saved preference for that process (`auto` and `dark` also work).
+
+Preferences are saved in `~/.config/pimux/theme`. Reopen the manager or popup to apply changes; sessions and running tasks are not restarted. All PiMux views share the palette. `NO_COLOR` keeps selection emphasis without colored text. The tmux status bar retains its paired dark background and readable foreground.
+
 ## Update
 
 Linux:

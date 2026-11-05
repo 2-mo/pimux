@@ -75,7 +75,7 @@ Installation backs up changed files and appends only the command PATH line to su
 | --- | --- |
 | `pimux`, `pimux -n local` | Local tmux TUI; create/enter local sessions, windows and splits. |
 | `pimux tmux ...`, `pimux ls` | Native commands/listing on the selected local tmux server. |
-| `pimux ip`, `pimux ports`, `pimux gpu` | Local inspectors; unavailable telemetry is explicit. Apple GPU collection is absent. |
+| `pimux ip`, `pimux ports`, `pimux gpu` | Local inspectors; macOS GPU model/core identity and optional native driver utilization. Unavailable telemetry is explicit. |
 | `pimux hosts` | Read local SSH/VS Code candidates; no network connection. |
 | `pimux hosts inspect server_a server_b --json` | One-shot, host-aware Linux session/resource snapshots over verified SSH. |
 | `pimux hosts access-preview server_a` | Read-only public-key/authorization preview; use `--key` if ambiguous. |
@@ -96,9 +96,13 @@ Darwin terminal directory actions use the public `proc_pidinfo` ABI via libproc,
 
 Ports include only processes visible to the current user; empty selection differs from query failure. Process command text is for display, not a lossless argument vector. Exit/permission failures leave details unavailable. Network snapshots retain scoped IPv6 gateways and separate defaults, with a `system` table label rather than Linux policy-table claims. Subnet filtering omits host, rejected, blackhole, loopback, link-local and multicast routes. `pimux ip --once --all` includes loopback interfaces.
 
-Missing NVIDIA tools produce explicit unavailable telemetry, not a claim that the Mac has no GPU. Apple GPU metrics are unimplemented. Proxy saving and shell reports use the selected runtime. Legacy foreground-environment inference still requires Linux `/proc`; Mac reports unknown rather than inspecting credentials or restarting processes.
+Mac GPU views use `system_profiler` for model/core identity and a bounded, unprivileged `ioreg` query for an optional AGX utilization counter. Driver counters are not a stable macOS API: missing, invalid or ambiguous values stay unavailable, never zero. Apple unified memory is shared with the CPU and is not shown as dedicated VRAM. GPU memory, temperature, power and per-process GPU measurements are not inferred. Linux keeps its NVIDIA telemetry path. Proxy saving and shell reports use the selected runtime. Legacy foreground-environment inference still requires Linux `/proc`; Mac reports unknown rather than inspecting credentials or restarting processes.
 
 `pimux tmux` execs the configured command array, preserving native arguments, streams and cancellation.
+
+## Terminal contrast
+
+`pimux theme` reports the active preference and its source. `pimux theme light`, `dark` or `auto` saves a readable palette without restarting sessions. Auto uses terminal-default foreground when no trustworthy background hint is available; tmux-inherited hints are ignored. See [terminal contrast](../README.md#terminal-contrast).
 
 ## Verification and limits
 
@@ -114,7 +118,7 @@ The native CI job is configured to build the pinned toolchain and run the local 
 
 Darwin PTY buffers are small: tests drain output during shutdown, stop on EOF and verify restored flags through the surviving master descriptor. Targeting/process-preservation assertions remain strict. Cancellation is compared after a response from the initialized native tmux client, avoiding signals raced against startup.
 
-Client views independently select **windows**, sharing programs. Panes within the same shared tmux window retain native shared active-pane semantics; the beta does not claim independent same-window focus or program copies. Intel Mac validation and Apple GPU collection remain absent. Remote session actions remain unimplemented.
+Client views independently select **windows**, sharing programs. Panes within the same shared tmux window retain native shared active-pane semantics; the beta does not claim independent same-window focus or program copies. Intel Mac validation remains absent. Apple GPU utilization depends on the native driver exposing a valid counter; identity remains visible without it. Remote session actions remain unimplemented.
 
 The release source `48672332c158b027bdf91090e40a4533cfbbca8d` passed Linux core checks (416 passed, 5 skipped), SSH checks (56 passed), and native Mac checks (358 passed, 2 skipped), plus the full Homebrew install/test/upgrade/uninstall lifecycle. This evidence applies to that exact source; older green runs do not certify later application changes. The Homebrew target is Apple silicon macOS 15+, not a claim of Intel support.
 

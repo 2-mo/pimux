@@ -134,14 +134,15 @@ def test_macos_partial_network_failure_is_visible(monkeypatch):
     assert not interfaces and len(routes) == 1 and len(errors) == 1
 
 
-def test_missing_nvidia_on_macos_does_not_claim_no_gpu(monkeypatch):
+def test_missing_native_gpu_query_on_macos_does_not_claim_no_gpu(monkeypatch):
+    monkeypatch.setattr(gpu, "_mac_identity_cache", None)
     monkeypatch.setattr(gpu.sys, "platform", "darwin")
     monkeypatch.setenv("PIMUX_LANGUAGE", "en")
     monkeypatch.setattr(gpu.subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(FileNotFoundError()))
     monitor = gpu.Monitor()
     monitor.refresh()
     assert monitor.gpus == [] and monitor.error
-    assert "Apple GPU" in monitor.error
+    assert "macOS GPU identity" in monitor.error
 
 
 @pytest.mark.parametrize("script", ["install.sh"])
@@ -210,3 +211,40 @@ def test_apple_bash_selects_modern_runtime_before_loading_libraries(tmp_path):
     assert result.returncode == 0 and "pimux " in result.stdout, result.stderr
     assert "syntax error" not in result.stderr
     assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="requires native macOS GPU inventory")
+def test_native_macos_gpu_inventory_and_render_are_read_only(monkeypatch, capsys):
+    """Real inventory smoke, not proof of counters on a GPU-less cloud runner."""
+    import math
+    from rich.console import Console
+
+    monkeypatch.setenv("PIMUX_LANGUAGE", "en")
+    monkeypatch.setattr(gpu, "_mac_identity_cache", None)
+    cards = gpu.query_gpus()
+    with capsys.disabled():
+        print("\nNative macOS GPU inventory:", [
+            {"model": card.name, "cores": card.cores, "provider": card.backend,
+             "available_fields": [name for name in ("utilization", "memory_used", "memory_total",
+                                                    "temperature", "power_draw", "power_limit")
+                                  if getattr(card, name) is not None]}
+            for card in cards
+        ])
+        if not cards or all(card.utilization is None for card in cards):
+            print("GPU utilization unavailable on this runner; numeric utilization NOT validated.")
+    for card in cards:
+        assert card.name and card.backend == "macos"
+        assert card.cores is None or card.cores > 0
+        assert card.utilization is None or (math.isfinite(card.utilization) and 0 <= card.utilization <= 100)
+        assert card.memory_total is None and card.memory_used is None
+    monitor = gpu.Monitor()
+    monitor.details = True
+    monitor.refresh()
+    assert monitor.error is None
+    console = Console(width=80)
+    lines = console.render_lines(monitor.render(80, 24), console.options, pad=False)
+    assert len(lines) <= 24
+    text = "\n".join("".join(segment.text for segment in line) for line in lines)
+    assert "PiMux" in text and "NVIDIA" not in text
+    if cards:
+        assert "unavailable" in text or "Unified" in text

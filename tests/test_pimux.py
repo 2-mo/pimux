@@ -21,6 +21,36 @@ import pytest
 SOURCE = Path(__file__).resolve().parents[1]
 
 
+def use_nvidia_gpu_fixture(directory):
+    """Select the fake NVIDIA provider only in this test's private UI copy.
+
+    Real launchers and Python runtimes still execute the dashboard. Do not spoof
+    sys.platform: terminal, process and network code must retain native behavior.
+    Production platform dispatch is covered separately in test_apple_gpu.py.
+    """
+    (directory / 'gpu.py').rename(directory / '_gpu_fixture_subject.py')
+    (directory / 'gpu.py').write_text(
+        'import _gpu_fixture_subject as gpu\n'
+        'gpu.query_gpus = gpu.query_nvidia_gpus\n'
+        'gpu.query_processes = gpu.query_nvidia_processes\n'
+        'raise SystemExit(gpu.main())\n'
+    )
+
+
+@pytest.fixture
+def nvidia_gpu_source(tmp_path):
+    """Exercise multi-GPU interactions on every OS without requiring hardware."""
+    source = tmp_path / 'gpu-source'
+    source.mkdir()
+    for name in ('bin', 'lib', 'config'):
+        shutil.copytree(SOURCE / name, source / name,
+                        ignore=shutil.ignore_patterns('__pycache__'))
+    # Keep the checkout's real locked runtime, rather than a fake Python shim.
+    (source / '.venv').symlink_to(SOURCE / '.venv', target_is_directory=True)
+    use_nvidia_gpu_fixture(source / 'lib')
+    return source
+
+
 def wait_terminal(process, master, timeout=5, output=None):
     """Drain terminal output while waiting; Darwin's small PTY buffer can fill
     during tmux teardown before the client has a chance to exit."""
@@ -113,7 +143,7 @@ def test_install_exposes_short_command_and_preserves_user_settings(tmp_path):
     assert os.access(home / '.local/bin/pimux', os.X_OK)
     config = home / '.config/pimux'
     assert (config / 'macos.py').read_bytes() == (SOURCE / 'lib/macos.py').read_bytes()
-    for module in ('hosts.py', 'host_snapshot.py', 'ssh_discovery.py', 'ssh_hop.py', 'access_preview.py', 'access_setup.py', 'access_agent.py', 'access_identity.py', 'access_transport.py', 'ssh_askpass.py'):
+    for module in ('theme.py', 'hosts.py', 'host_snapshot.py', 'ssh_discovery.py', 'ssh_hop.py', 'access_preview.py', 'access_setup.py', 'access_agent.py', 'access_identity.py', 'access_transport.py', 'ssh_askpass.py'):
         assert (config / module).read_bytes() == (SOURCE / 'lib' / module).read_bytes()
     theme = config / 'tmux.conf'
     theme.write_text('# pimux-managed: previous theme\n')
@@ -163,6 +193,7 @@ def test_installed_gpu_dashboard_uses_its_own_runtime(tmp_path, monkeypatch):
     smi = bindir / 'nvidia-smi'
     smi.write_text('#!/bin/sh\necho "0, Installed GPU, 50, 1024, 8192, 50, 100, 250"\n')
     smi.chmod(0o755)
+    use_nvidia_gpu_fixture(home / '.config/pimux')
     env = dict(os.environ, HOME=str(home), PATH=f'{bindir}:{os.environ["PATH"]}')
     env['PIMUX_ENV_FILE'] = str(home / '.config/pimux/environment.json')
     env.pop('TMUX', None)
@@ -1130,7 +1161,7 @@ def test_default_runtime_isolates_system_server(tmp_path, server):
         subprocess.run(['tmux', '-L', 'pimux', 'kill-server'], env=env, capture_output=True)
 
 
-def test_search_gpu_popup_and_reload_preserve_running_panes(tmp_path, server):
+def test_search_gpu_popup_and_reload_preserve_running_panes(tmp_path, server, nvidia_gpu_source):
     env, tmux = server
     bindir = tmp_path / 'bin'
     bindir.mkdir()
@@ -1144,14 +1175,14 @@ def test_search_gpu_popup_and_reload_preserve_running_panes(tmp_path, server):
     tmux('set-environment', '-g', 'PATH', env['PATH'])
     tmux('set-environment', '-g', 'PIMUX_RUNTIME_FILE', env['PIMUX_RUNTIME_FILE'])
     tmux('set-environment', '-g', 'PIMUX_LANGUAGE_FILE', env['PIMUX_LANGUAGE_FILE'])
-    tmux('source-file', str(SOURCE / 'config/tmux.conf'))
-    tmux('set-option', '-g', '@pimux_launcher', str(SOURCE / 'bin/pimux'))
+    tmux('source-file', str(nvidia_gpu_source / 'config/tmux.conf'))
+    tmux('set-option', '-g', '@pimux_launcher', str(nvidia_gpu_source / 'bin/pimux'))
     # Literal brackets must not become a pattern; hidden windows are searchable.
     wanted = tmux('new-window', '-d', '-t', 'seed', '-n', 'Train[Fast]', '-P', '-F', '#{window_id}', 'sleep 60')
     before = tmux('list-panes', '-a', '-F', '#{pane_id} #{pane_pid}')
     master, slave = os.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 32, 140, 0, 0))
-    client = subprocess.Popen([str(SOURCE / 'bin/pimux'), '-n', 'seed'], env=env,
+    client = subprocess.Popen([str(nvidia_gpu_source / 'bin/pimux'), '-n', 'seed'], env=env,
                               stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
     output = bytearray()
 
@@ -1319,7 +1350,7 @@ manager
 
 
 @pytest.mark.parametrize('exit_with', ['q', 'signal'])
-def test_gpu_mouse_wheel_scrolls_and_restores_terminal(tmp_path, server, exit_with):
+def test_gpu_mouse_wheel_scrolls_and_restores_terminal(tmp_path, server, exit_with, nvidia_gpu_source):
     import re
 
     env, _ = server
@@ -1335,7 +1366,7 @@ def test_gpu_mouse_wheel_scrolls_and_restores_terminal(tmp_path, server, exit_wi
     master, slave = os.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 20, 110, 0, 0))
     original_terminal = termios.tcgetattr(slave)
-    process = subprocess.Popen([str(SOURCE / 'bin/pimux'), '__gpu'], env=env,
+    process = subprocess.Popen([str(nvidia_gpu_source / 'bin/pimux'), '__gpu'], env=env,
                                stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
     output = bytearray()
     queries = bytearray()

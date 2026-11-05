@@ -6,6 +6,11 @@ import pytest
 
 import gpu
 
+@pytest.fixture(autouse=True)
+def nvidia_platform(monkeypatch):
+    monkeypatch.setattr(gpu.sys, "platform", "linux")
+
+
 CSV = '0, "GPU, A", 100, 900, 1000, 81, 123.5, 250\n2, GPU B, N/A, [N/A], 0, [Not Supported], N/A, N/A\n'
 
 
