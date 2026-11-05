@@ -1,6 +1,6 @@
 # Homebrew Mac beta
 
-PiMux **1.0.0-beta.1** is a prerelease for **Apple silicon, macOS 15+**. Intel is not validated. Linux **v0.11.0** remains stable/latest.
+PiMux **1.0.0-beta.2** is a prerelease for **Apple silicon, macOS 15+**. Intel is not validated. Linux **v0.11.0** remains stable/latest.
 
 ```sh
 brew tap 2-mo/pimux https://github.com/2-mo/pimux
@@ -72,4 +72,4 @@ prefix may require building dependencies because official bottles are not always
 relocatable. Formula audit results and actual lifecycle evidence must be recorded;
 the presence of a formula is not proof of installation support.
 
-The beta release source `48672332c158b027bdf91090e40a4533cfbbca8d` passed Linux core checks (416 passed, 5 skipped), SSH checks (56 passed), native Mac checks (358 passed, 2 skipped), and the full Homebrew install/test/upgrade/uninstall lifecycle. Package revisions used for lifecycle tests are not separate public releases.
+The beta.2 behavior at `3710a39da6226bf59497fa5d5bfe33519de30f81` passed Linux core checks (474 passed, 6 skipped), SSH checks (56 passed), native Mac checks (417 passed, 2 skipped), and the full Homebrew install/test/upgrade/uninstall lifecycle. Release preparation updates version metadata and packaging only. Package revisions used for lifecycle tests are not separate public releases.

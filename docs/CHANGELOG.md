@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.0-beta.2 (Mac prerelease)
+
+- Fix light-terminal text contrast across Rich views. Add persistent `pimux theme auto|light|dark`, an environment override, and theme diagnostics.
+- Show native Apple GPU identity and optional unprivileged driver utilization on macOS. Unsupported readings remain unavailable; unified memory is not reported as dedicated VRAM.
+- Preserve Linux NVIDIA behavior and Linux v0.11.0 as the stable/latest release.
+- Apple GPU numeric utilization was not validated on physical Apple GPU hardware; the hosted Mac exposed no GPU inventory.
+
 ## 0.11.0
 
 - Keep the normal footer focused on the current directory and `Ctrl-a → d detach`; reveal other shortcuts after pressing Ctrl-a. Copy and manager modes retain their contextual hints.

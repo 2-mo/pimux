@@ -1,6 +1,6 @@
 # macOS beta
 
-PiMux **1.0.0-beta.1** is the Mac prerelease, separate from Linux **v0.11.0**, which remains stable/latest. It provides a native local terminal, local inspectors and experimental [read-only multi-server CLI snapshots](hosts.md). A unified multi-server TUI and remote session actions are deferred.
+PiMux **1.0.0-beta.2** is the Mac prerelease, separate from Linux **v0.11.0**, which remains stable/latest. It provides a native local terminal, local inspectors and experimental [read-only multi-server CLI snapshots](hosts.md). A unified multi-server TUI and remote session actions are deferred.
 
 ## Install with Homebrew
 
@@ -120,7 +120,7 @@ Darwin PTY buffers are small: tests drain output during shutdown, stop on EOF an
 
 Client views independently select **windows**, sharing programs. Panes within the same shared tmux window retain native shared active-pane semantics; the beta does not claim independent same-window focus or program copies. Intel Mac validation remains absent. Apple GPU utilization depends on the native driver exposing a valid counter; identity remains visible without it. Remote session actions remain unimplemented.
 
-The release source `48672332c158b027bdf91090e40a4533cfbbca8d` passed Linux core checks (416 passed, 5 skipped), SSH checks (56 passed), and native Mac checks (358 passed, 2 skipped), plus the full Homebrew install/test/upgrade/uninstall lifecycle. This evidence applies to that exact source; older green runs do not certify later application changes. The Homebrew target is Apple silicon macOS 15+, not a claim of Intel support.
+The beta.2 behavior at `3710a39da6226bf59497fa5d5bfe33519de30f81` passed Linux core checks (474 passed, 6 skipped), SSH checks (56 passed), native Mac checks (417 passed, 2 skipped), and the full Homebrew install/test/upgrade/uninstall lifecycle. Release preparation updates version metadata and packaging only. The hosted Mac exposed no Apple GPU, so numeric driver utilization remains hardware-unvalidated and unavailable values are never reported as zero. The Homebrew target is Apple silicon macOS 15+, not a claim of Intel support.
 
 ## Remaining major-version work
 

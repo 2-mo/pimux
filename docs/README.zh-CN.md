@@ -16,7 +16,7 @@ Debian/Ubuntu 会自动补齐 tmux 等终端依赖。
 
 ## 安装 · macOS 测试版
 
-PiMux **1.0.0-beta.1** 是面向 Apple silicon、macOS 15 及以上的预发布版本。Linux **v0.11.0** 仍是稳定版 / latest；上面的 Linux 安装命令不安装 Mac 测试版。
+PiMux **1.0.0-beta.2** 是面向 Apple silicon、macOS 15 及以上的预发布版本。Linux **v0.11.0** 仍是稳定版 / latest；上面的 Linux 安装命令不安装 Mac 测试版。
 
 ```sh
 brew tap 2-mo/pimux https://github.com/2-mo/pimux

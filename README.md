@@ -16,7 +16,7 @@ On Debian/Ubuntu, missing tmux and terminal dependencies are installed automatic
 
 ## Install · macOS beta
 
-PiMux **1.0.0-beta.1** is a prerelease for Apple silicon on macOS 15 or newer. Linux **v0.11.0** remains the stable/latest release; the Linux installer above does not install the Mac beta.
+PiMux **1.0.0-beta.2** is a prerelease for Apple silicon on macOS 15 or newer. Linux **v0.11.0** remains the stable/latest release; the Linux installer above does not install the Mac beta.
 
 ```sh
 brew tap 2-mo/pimux https://github.com/2-mo/pimux

@@ -4,7 +4,7 @@ class PimuxPreview < Formula
   desc "Native terminal and explicit multi-server CLI source preview"
   homepage "https://github.com/2-mo/pimux"
   url @@SOURCE_URL@@
-  version "1.0.0-beta.1"
+  version "1.0.0-beta.2"
   sha256 @@SOURCE_SHA256@@
   license "Apache-2.0"
   revision @@REVISION@@
@@ -61,7 +61,7 @@ class PimuxPreview < Formula
 
   def caveats
     <<~EOS
-      This is the PiMux 1.0.0-beta.1 Mac foundation prerelease.
+      This is the PiMux 1.0.0-beta.2 Mac foundation prerelease.
       Local terminal and multi-server CLI snapshots are available; remote session
       attachment/actions and a unified multi-server TUI are not implemented.
       No shell startup files or existing PiMux installation were changed.
@@ -80,7 +80,7 @@ class PimuxPreview < Formula
     sockets = testpath/"sockets"
     sockets.mkdir
     ENV["TMUX_TMPDIR"] = sockets
-    assert_match "1.0.0-beta.1", shell_output("#{bin}/pimux --version")
+    assert_match "1.0.0-beta.2", shell_output("#{bin}/pimux --version")
     system libexec/".venv/bin/python", "-I", "-c", "import blessed, rich; print('runtime ready')"
     assert_match '"candidates": []', shell_output("#{bin}/pimux hosts discover --json")
     system bin/"pimux", "doctor"
