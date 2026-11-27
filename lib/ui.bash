@@ -130,6 +130,8 @@ declare -A PIMUX_EN=(
     ['查看此帮助；先按 Ctrl-a 并松开，再按操作键；数字键直接切窗口']='Show keyboard help; press and release Ctrl-a before an action key'
     ['打开操作菜单']='Open the menu'
     ['pimux 配置已重载']='pimux configuration reloaded'
+    ['已重置当前分屏的鼠标与屏幕模式。']='Mouse and screen modes reset for this pane.'
+    ['当前分屏不在 shell 提示符，未重置。']='This pane is not at a shell prompt; nothing was reset.'
 )
 load_language() {
     PIMUX_LANGUAGE=en

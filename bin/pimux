@@ -97,6 +97,7 @@ pimux · Personal terminal
   pimux theme [MODE]    Show or save terminal theme: auto, light, dark
   pimux gpu             Open live GPU details
   pimux ports [PORT]    Inspect TCP listeners, processes and working directories
+  pimux disk [DIR]      Disk capacity per filesystem; folder sizes on request
   pimux ip              View local IPs, Tailscale addresses and subnet routes
   pimux hosts           CLI host snapshots and confirmed public-key setup
   pimux env             Manage environment defaults and network proxies
@@ -135,6 +136,7 @@ pimux · 个人工作终端
   pimux theme [模式]    查看或保存终端主题：auto、light、dark
   pimux gpu             查看实时显卡详情
   pimux ports [端口]    查看 TCP 监听、占用进程及工作目录
+  pimux disk [目录]     查看各文件系统容量，按需统计目录占用
   pimux hosts           多服务器 CLI 快照与明确确认的公钥授权
   pimux ip              查看本机 IP、Tailscale 地址及子网路由
   pimux env             管理默认环境变量和网络代理
@@ -311,6 +313,39 @@ cleanup_view() {
         "kill-session -t '$view'" 2>/dev/null || true
 }
 
+# Views of clients that vanished without the detach hook (including views from
+# older releases) stay unattached forever. Fresh views may still be attaching.
+sweep_orphan_views() {
+    local sid view attached created now
+    now=$(date +%s)
+    while IFS=$'\t' read -r sid view attached created; do
+        [[ -n $view && $attached == 0 && $created =~ ^[0-9]+$ ]] || continue
+        (( now - created > 60 )) || continue
+        cleanup_view "$sid"
+    done < <(tmux list-sessions -F $'#{session_id}\t#{@pimux_view}\t#{session_attached}\t#{session_created}' 2>/dev/null || true)
+}
+
+# Only a shell prompt is safe to reset: a running program owns its own modes.
+reset_pane_terminal() {
+    local client=$1 sid pane program tty dead
+    sid=$(client_session "$client")
+    pane=$(tmux display-message -p -t "$sid:" '#{pane_id}')
+    IFS=$'\t' read -r program tty dead < <(tmux display-message -p -t "$pane" $'#{pane_current_command}\t#{pane_tty}\t#{pane_dead}')
+    case $program in
+        bash|zsh|fish|sh|dash|ksh) ;;
+        *) program='' ;;
+    esac
+    if [[ -z $program || $dead == 1 || ! -w $tty ]]; then
+        tmux display-message -c "$client" "$(tr_ui '当前分屏不在 shell 提示符，未重置。')"
+        return
+    fi
+    # Written as the pane's own output: mouse reporting off, normal screen,
+    # visible cursor and normal cursor keys. Ctrl-C then drops typed reports.
+    printf '\033[?1000l\033[?1002l\033[?1003l\033[?1006l\033[?1049l\033[?25h\033[?1l\033>' > "$tty"
+    tmux send-keys -t "$pane" C-c
+    tmux display-message -c "$client" "$(tr_ui '已重置当前分屏的鼠标与屏幕模式。')"
+}
+
 install_shared_bindings() {
     local line key action note command option original repeatable
     local -a repeat=()
@@ -436,6 +471,7 @@ ensure_session() {
 enter_session() {
     local name=$1 client=${2:-} root
     require_terminal
+    sweep_orphan_views
     if [[ -n ${TMUX:-} && -z $client ]]; then client=$(current_client); fi
     root=$(ensure_session "$name")
     connect_session "$root" '' "$client"
@@ -477,6 +513,7 @@ configure_socket() {
 open_manager() {
     local client=${1:-} expanded=${2:-} socket command cwd sid
     require_terminal
+    sweep_orphan_views
     if [[ -n ${TMUX:-} && -z $client ]]; then client=$(current_client); fi
     if [[ -z $client ]]; then
         manager '' "$expanded"
@@ -617,6 +654,11 @@ main() {
         load_gpu; python_view ports
         return
     fi
+    if [[ ${1:-} == __disk ]]; then
+        [[ $# == 1 ]] || return 2
+        load_gpu; python_view disk
+        return
+    fi
     if [[ ${1:-} == __ip ]]; then
         shift
         load_gpu; python_view network "$@"
@@ -724,12 +766,18 @@ main() {
                 ports)
                     tmux display-popup -E -c "$client" -w 95% -h 90% \
                         "$(shell_quote "$PIMUX_LAUNCHER") __ports" ;;
+                disk)
+                    # Start in the pane's directory so "." sizes the folder being worked in.
+                    sid=$(client_session "$client")
+                    tmux display-popup -E -c "$client" -d "$(tmux display-message -p -t "$sid:" '#{pane_current_path}')" \
+                        -w 95% -h 90% "$(shell_quote "$PIMUX_LAUNCHER") __disk" ;;
                 path)
                     sid=$(client_session "$client")
                     local pane
                     pane=$(tmux display-message -p -t "$sid:" '#{pane_id}')
                     tmux display-popup -E -c "$client" -w 95% -h 90% \
                         "$(shell_quote "$PIMUX_LAUNCHER") __path $(shell_quote "${PIMUX_COMMAND[0]}") $(shell_quote "$PIMUX_TARGET_SOCKET") $(shell_quote "$pane")" ;;
+                reset-terminal) reset_pane_terminal "$client" ;;
                 close-pane)
                     sid=$(client_session "$client")
                     local pane
@@ -784,6 +832,7 @@ main() {
             load_proxy; pimux_proxy_command "$@"; return ;;
         theme) shift; load_gpu; python_view theme "$@"; return ;;
         ports) shift; load_gpu; python_view ports "$@"; return ;;
+        disk) shift; load_gpu; python_view disk "$@"; return ;;
         hosts) shift; load_gpu; python_view hosts "$@"; return ;;
         ip)
             shift

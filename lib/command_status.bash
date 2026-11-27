@@ -14,9 +14,17 @@ pimux_command_status_prompt() {
     return "$PIMUX_EXIT_CODE"
 }
 
+# A full-screen program that crashed can leave mouse reporting on. Nothing at a
+# prompt reads those reports, so every mouse move would be typed as text.
+pimux_terminal_modes_prompt() {
+    local PIMUX_EXIT_CODE=$?
+    [[ ! -t 1 ]] || printf '\033[?1000l\033[?1002l\033[?1003l\033[?1006l'
+    return "$PIMUX_EXIT_CODE"
+}
+
 pimux_command_status_init() {
     [[ ${PIMUX_EXIT_SHELL_PID:-} != "$BASHPID" ]] || return 0
     PIMUX_EXIT_SHELL_PID=$BASHPID
     unset PIMUX_EXIT_REPORTED
-    PROMPT_COMMAND+=(pimux_command_status_prompt)
+    PROMPT_COMMAND+=(pimux_command_status_prompt pimux_terminal_modes_prompt)
 }

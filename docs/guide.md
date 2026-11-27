@@ -29,7 +29,7 @@ PiMux is a workspace inside your existing terminal or SSH connection; it is not 
 
 ## Everyday commands
 
-Start with `pimux`. The main interface and `Ctrl-a h` share a tree grouped into **Workspace, Resources, Network and Settings**, with small built-in symbols. In wide terminals, the home screen shows the menu beside the session list; narrow terminals show one area at a time. `Tab` switches areas, arrows select or expand, and Enter opens an item. Clicking also works. The existing e / o / g / t / i / ? home shortcuts still open tools directly, and `q` returns to the same session selection and search. The commands below are optional shortcuts.
+Start with `pimux`. The main interface and `Ctrl-a h` share a tree grouped into **Workspace, Resources, Network and Settings**, with small built-in symbols. In wide terminals, the home screen shows the menu beside the session list; narrow terminals show one area at a time. `Tab` switches areas, arrows select or expand, and Enter opens an item. Clicking also works. The existing e / o / g / f / t / i / ? home shortcuts still open tools directly, and `q` returns to the same session selection and search. The commands below are optional shortcuts.
 
 ```bash
 pimux                 # Session manager; never creates a session implicitly
@@ -37,6 +37,7 @@ pimux -n work         # Create or enter a named session
 pimux ls              # List sessions, windows and directories
 pimux ls project      # Filter the listing
 pimux gpu             # Live GPU details
+pimux disk            # Capacity per filesystem; folder sizes on request
 pimux ports           # Listeners, processes and directories; optionally add a port
 pimux env             # Environment defaults, including the proxy shortcut
 pimux proxy           # Open proxy settings directly
@@ -85,6 +86,8 @@ Press `/` in the manager to list individual panes across projects, including pan
 
 Choose **Workspace → Arrange panes** from the home screen or `Ctrl-a h`. The home screen targets the selected window or search result; the action menu targets your current pane. Equal columns, equal rows, tiling and swapping panes are available in one place. Choose **Adjust size**, then hold the arrows to resize continuously; Enter or Esc finishes resizing. Tab changes the target pane, and q returns. Layout changes apply to everyone viewing that window; running programs keep their processes. Pane focus follows tmux's shared window behavior.
 
+A full-screen program that crashes can leave mouse reporting on, so moving or scrolling the mouse types sequences such as `35;40;61M` at the prompt. PiMux shells turn mouse reporting off at every prompt, keeping the last exit status. For a shell started before this was installed, or one still stuck on the alternate screen, choose **Workspace → Reset mouse / screen modes** in `Ctrl-a h`. It applies only at a shell prompt: it restores the normal screen and cursor, and presses Ctrl-C to clear the typed sequences. A running program keeps its own modes.
+
 ## IP addresses and subnet routes
 
 Choose **IP** in the main interface, press `i`, or use `pimux ip`. The page shows each interface's IPv4/IPv6 addresses and CIDR subnets, plus default and subnet routes with their device, gateway and routing table. Multiple addresses on one interface and policy routing tables remain distinct.
@@ -97,9 +100,17 @@ Local information refreshes every three seconds. `pimux ip --all --once` prints 
 
 Press `p` to request the public egress IP from [ipify](https://www.ipify.org/), with a three-second request limit. This query bypasses HTTP/SOCKS proxies and follows the current system route. Opening the page or refreshing local information does not query that service. The terminal's proxy state or saved PiMux preference is labelled separately.
 
+## Disk usage
+
+Choose **Resources → Disk usage** in the main interface or `Ctrl-a h`, press `f` on the home screen, or run `pimux disk`. Each filesystem shows its type, size, used and free space, a usage bar and inode usage; 90% or more of either turns orange, and `●` marks the filesystem of the current directory. Sizes round up like `df -h`. Boot partitions, tmpfs and per-container mounts are hidden; `a` or `pimux disk --all` shows them. Each mount is read in its own short-lived process with a two-second limit, so a stalled network mount shows **no response** instead of freezing the page.
+
+Press Enter for folder sizes of the selected filesystem, or `.` for the current directory. Sizes come from `du`, staying on that filesystem; entries appear largest first as `du` finishes them, and Esc stops a scan. Enter opens a subfolder, Backspace goes to the parent, and `r` scans again; finished results are reused while the page stays open. Large data disks can take minutes, so nothing is scanned until you ask. `pimux disk DIR --once` prints one directory's sizes for scripts.
+
 ## Ports and window previews
 
 Choose **Ports** in the main `pimux` interface to inspect local TCP listeners, owning processes, commands and working directories. The optional `pimux ports` shortcut and **Listening ports** in `Ctrl-a h` remain available. Press `/` to filter by port, process or directory; Enter finishes typing and Esc clears the search. Use `pimux ports 8888` for an exact port lookup. Visibility follows system permissions. These are server listeners, not a service health check or your local forwarded addresses.
+
+Window rows in the manager also show `exit N` for exited panes retained by tmux, `idle 3h` / `idle 16d` when a window has printed nothing for an hour or more, and `⚠ mouse on` for a shell prompt still receiving mouse reports. Collapsed sessions show how many of their panes have exited.
 
 In the manager, select a window and press `d` to preview each pane's idle/alive state, working directory and last 60 lines of output. Selecting a session previews its current window. Exit codes are available for exited panes retained by tmux. Previews refresh every three seconds; scroll with the wheel or arrows, and use `q` / Esc to return to the same manager selection. Inspection does not change another client's selected window or send keys to applications.
 
@@ -170,7 +181,7 @@ Choose **Copy current directory path** in `Ctrl-a h`, or press `Ctrl-a y`. The p
 
 ## Update and uninstall
 
-For a Homebrew installation, use `brew upgrade pimux-preview`. Reinstall source previews from the chosen checkout. On Linux, run `pimux update`, or open `Ctrl-a h` and choose **Update PiMux**. The updater downloads the latest release, verifies its checksum, preserves language/runtime preferences and backs up changed managed files. It reports the installed binary and running server versions separately. Automatic reload only targets the configured server whose supported version matches the binary, and only when this installation did not replace tmux. It does not follow an inherited `TMUX` environment or reload a secondary system server. An older, unqueryable or just-upgraded server is left unchanged: replacing the binary does not upgrade a running process. Keep its sessions until your work finishes naturally; the installer does not kill or restart them. The install command also works for updating older versions that do not have the update command. `pimux reload` and `Ctrl-a r` remain explicit reload commands, including local status overrides in connected PiMux views.
+For a Homebrew installation, use `brew upgrade pimux-preview`. Reinstall source previews from the chosen checkout. On Linux, run `pimux update`, or open `Ctrl-a h` and choose **Update PiMux**. The updater downloads the latest release, verifies its checksum, preserves language/runtime preferences and backs up managed files you edited since the last installation. The installer's own previous copies are replaced without a backup; their checksums are kept in `~/.config/pimux/installed.cksum`. It reports the installed binary and running server versions separately. Automatic reload only targets the configured server whose supported version matches the binary, and only when this installation did not replace tmux. It does not follow an inherited `TMUX` environment or reload a secondary system server. An older, unqueryable or just-upgraded server is left unchanged: replacing the binary does not upgrade a running process. Keep its sessions until your work finishes naturally; the installer does not kill or restart them. The install command also works for updating older versions that do not have the update command. `pimux reload` and `Ctrl-a r` remain explicit reload commands, including local status overrides in connected PiMux views.
 
 ```bash
 pimux uninstall

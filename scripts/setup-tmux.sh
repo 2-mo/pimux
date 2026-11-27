@@ -13,6 +13,17 @@ backup_file() {
     printf 'Backup: %s\n' "$backup"
 }
 
+# install_files records each written asset's checksum. An upgrade then backs up
+# only managed files edited since; the previous release's own copies are replaced.
+record_asset() {
+    [[ -z ${PIMUX_MANIFEST:-} ]] || printf '%s\t%s\n' "$(cksum < "$1")" "$1" >> "$PIMUX_MANIFEST.new"
+}
+
+installed_unchanged() {
+    [[ -n ${PIMUX_MANIFEST:-} && -f $PIMUX_MANIFEST ]] || return 1
+    grep -Fxq -- "$(cksum < "$1")"$'\t'"$1" "$PIMUX_MANIFEST"
+}
+
 install_asset() {
     local source=$1 destination=$2 mode=$3 temporary
     if [[ -L $destination ]]; then
@@ -20,17 +31,18 @@ install_asset() {
         return 1
     fi
     if [[ -e $destination ]]; then
-        if cmp -s -- "$source" "$destination"; then chmod "$mode" "$destination"; return; fi
+        if cmp -s -- "$source" "$destination"; then chmod "$mode" "$destination"; record_asset "$destination"; return; fi
         grep -Fq '# pimux-managed:' "$destination" || {
             printf '目标属于其他文件，保留原样：%s\n' "$destination" >&2
             return 1
         }
-        backup_file "$destination"
+        installed_unchanged "$destination" || backup_file "$destination"
     fi
     temporary=$(mktemp "${destination}.new.XXXXXX")
     cp -- "$source" "$temporary"
     chmod "$mode" "$temporary"
     mv -- "$temporary" "$destination"
+    record_asset "$destination"
 }
 
 install_command_path() {
@@ -63,13 +75,15 @@ install_files() (
     mkdir -p -- "$target_home/.local/bin" "$config_dir"
     exec 9>"$config_dir/install.lock"
     pimux_lock 9
+    PIMUX_MANIFEST="$config_dir/installed.cksum"
+    : > "$PIMUX_MANIFEST.new"
     # The new launcher sources this module immediately; install it first.
     install_asset "$source_dir/lib/tmux_compat.bash" "$config_dir/tmux_compat.bash" 644
     install_asset "$source_dir/bin/pimux" "$target_home/.local/bin/pimux" 755
     install_asset "$source_dir/config/tmux.conf" "$config_dir/tmux.conf" 644
     install_asset "$source_dir/config/starship.toml" "$config_dir/starship.toml" 644
     install_asset "$source_dir/scripts/uninstall.sh" "$config_dir/uninstall.sh" 644
-    for file in runtime.bash host_runtime.py hosts.py host_snapshot.py ssh_discovery.py ssh_hop.py access_preview.py access_setup.py access_agent.py access_identity.py access_transport.py ssh_askpass.py ui.bash manager.bash manager_ui.py navigation.py menu_ui.py layout_ui.py gpu.bash gpu.py gpu_ui.py theme.py inspect_ui.py macos.py ports.py network.py window_details.py utility_ui.py environment.py environment_ui.py environment.bash proxy_ui.py proxy_status.py proxy.bash command_status.bash shell.bash bashrc; do
+    for file in runtime.bash host_runtime.py hosts.py host_snapshot.py ssh_discovery.py ssh_hop.py access_preview.py access_setup.py access_agent.py access_identity.py access_transport.py ssh_askpass.py ui.bash manager.bash manager_ui.py navigation.py menu_ui.py layout_ui.py gpu.bash gpu.py gpu_ui.py theme.py inspect_ui.py macos.py ports.py disk.py network.py window_details.py utility_ui.py environment.py environment_ui.py environment.bash proxy_ui.py proxy_status.py proxy.bash command_status.bash shell.bash bashrc; do
         install_asset "$source_dir/lib/$file" "$config_dir/$file" 644
     done
     local shell_config
@@ -77,6 +91,8 @@ install_files() (
     trap 'rm -f -- "$shell_config"' EXIT
     printf '# pimux-managed: Bash runtime\n%s\n' "$PIMUX_BASH" > "$shell_config"
     install_asset "$shell_config" "$config_dir/shell.conf" 600
+    # A partial run keeps the old manifest, so its unrecorded files stay backed up.
+    mv -- "$PIMUX_MANIFEST.new" "$PIMUX_MANIFEST"
     install_command_path "$target_home"
 )
 

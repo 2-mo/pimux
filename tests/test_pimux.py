@@ -1201,8 +1201,11 @@ def test_search_gpu_popup_and_reload_preserve_running_panes(tmp_path, server, nv
         os.write(master, b'\x01s')
         wait_for(lambda: '会话管理'.encode() in output)
         # Reach IP through the tree; keep the other direct tool shortcuts covered.
+        from navigation import entries
+        tree = [entry.identity for entry in entries('home')]
+        down = b'\x1b[B' * (tree.index('ip') - tree.index('manager'))
         for key, marker in [(b'e', '默认设置'.encode()), (b'o', 'PiMux 设置'.encode()), (b'g', b'GPU 0'),
-                            (b't', 'TCP 端口'.encode()), (b'\t' + b'\x1b[B' * 7 + b'\r', 'IP 与网络'.encode()), (b'?', '快捷键'.encode())]:
+                            (b't', 'TCP 端口'.encode()), (b'\t' + down + b'\r', 'IP 与网络'.encode()), (b'?', '快捷键'.encode())]:
             output.clear()
             os.write(master, key)
             wait_for(lambda: marker in output)
@@ -1511,7 +1514,10 @@ def test_mouse_click_passes_through_tmux_popup_to_manager(tmp_path, server):
         os.write(master, b'\rq')
         wait_for(lambda: b'mouse-target' in output and b'[1/1]' in output)
         output.clear()
-        os.write(master, b'\x1b[<0;10;13M\x1b[<0;10;13m')
+        # The menu tree starts on popup row 5, below the border and three heading rows.
+        from navigation import entries
+        row = 5 + [entry.identity for entry in entries('home')].index('ip')
+        os.write(master, f'\x1b[<0;10;{row}M\x1b[<0;10;{row}m'.encode())
         wait_for(lambda: 'IP 与网络'.encode() in output)
         output.clear()
         os.write(master, b'q')
@@ -1902,6 +1908,119 @@ def test_proxy_panel_sets_disables_and_restores_preferences(tmp_path):
             wait_terminal(process, master, timeout=5)
         os.close(master)
         os.close(slave)
+
+
+def test_upgrade_backs_up_only_managed_files_edited_since_install(tmp_path):
+    home = tmp_path / 'home'
+    home.mkdir()
+    assert install(home).returncode == 0
+    config = home / '.config/pimux'
+    manifest = config / 'installed.cksum'
+    assert str(config / 'disk.py') in manifest.read_text()
+
+    def recorded(*names):
+        # Stand in for files a previous release wrote and recorded.
+        lines = [line for line in manifest.read_text().splitlines()
+                 if line.split('\t', 1)[1] not in {str(config / name) for name in names}]
+        for name in names:
+            (config / name).write_text(f'# pimux-managed: previous release of {name}\n')
+            checksum = subprocess.run(['cksum'], stdin=(config / name).open('rb'),
+                                      capture_output=True, text=True, check=True).stdout.strip()
+            lines.append(f'{checksum}\t{config / name}')
+        manifest.write_text('\n'.join(lines) + '\n')
+
+    recorded('gpu.py', 'tmux.conf')
+    (config / 'ports.py').write_text('# pimux-managed: edited by hand\n')
+    result = install(home)
+    assert result.returncode == 0, result.stderr
+    assert sorted(path.name.split('.pimux-backup.')[0] for path in config.glob('*.pimux-backup.*')) == ['ports.py']
+    for name, source in (('gpu.py', 'lib/gpu.py'), ('tmux.conf', 'config/tmux.conf'), ('ports.py', 'lib/ports.py')):
+        assert (config / name).read_bytes() == (SOURCE / source).read_bytes()
+    # Without a record the installer cannot tell an old copy from an edit.
+    manifest.unlink()
+    (config / 'gpu.py').write_text('# pimux-managed: unknown origin\n')
+    assert install(home).returncode == 0
+    assert len(list(config.glob('gpu.py.pimux-backup.*'))) == 1
+
+
+def pane_modes(tmux, pane):
+    return tmux('display-message', '-p', '-t', pane, '#{mouse_any_flag}#{mouse_sgr_flag}#{alternate_on}')
+
+
+def wait_until(condition, timeout=8):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if condition():
+            return True
+        time.sleep(0.05)
+    return condition()
+
+
+def test_prompt_turns_off_mouse_reporting_left_by_a_program_and_keeps_exit_status(server):
+    _, tmux = server
+    import shlex
+    pane = tmux('display-message', '-p', '-t', '=seed:', '#{pane_id}')
+    tmux('respawn-pane', '-k', '-t', pane, shlex.join(['bash', '--rcfile', str(SOURCE / 'lib/shell.bash'), '-i']))
+    # A program that enables any-motion SGR reports and exits without restoring them.
+    tmux('send-keys', '-t', pane, "printf '\\033[?1003h\\033[?1006h'; false", 'Enter')
+    assert wait_until(lambda: tmux('show-options', '-pqv', '-t', pane, '@pimux_command_status') == '1'
+                      and pane_modes(tmux, pane)[:2] == '00'), (pane_modes(tmux, pane), tmux('capture-pane', '-p', '-t', pane))
+
+
+def test_reset_terminal_restores_only_a_shell_prompt(tmp_path, server):
+    env, tmux = server
+    pane = tmux('display-message', '-p', '-t', '=seed:', '#{pane_id}')
+    # A shell without PiMux's prompt hook, like one started before an upgrade.
+    tmux('respawn-pane', '-k', '-t', pane, 'bash --norc --noprofile -i')
+    master, slave = os.openpty()
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack('HHHH', 30, 100, 0, 0))
+    client = subprocess.Popen(['tmux', 'attach-session', '-t', '=seed'], env=env,
+                              stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
+    try:
+        assert wait_until(lambda: bool(tmux('list-clients', '-F', '#{client_name}')))
+        socket_path = tmux('display-message', '-p', '#{socket_path}')
+        name = tmux('list-clients', '-F', '#{client_name}')
+
+        def reset():
+            subprocess.run([str(SOURCE / 'bin/pimux'), '__client', socket_path, name, 'reset-terminal'],
+                           env=env, check=True, capture_output=True)
+
+        tmux('send-keys', '-t', pane, "printf '\\033[?1003h\\033[?1006h\\033[?1049h'", 'Enter')
+        assert wait_until(lambda: pane_modes(tmux, pane) == '111')
+        reset()
+        assert wait_until(lambda: pane_modes(tmux, pane) == '000'), pane_modes(tmux, pane)
+        tmux('respawn-pane', '-k', '-t', pane, "printf '\\033[?1003h'; exec sleep 60")
+        assert wait_until(lambda: pane_modes(tmux, pane)[0] == '1')
+        reset()
+        time.sleep(0.5)
+        assert pane_modes(tmux, pane)[0] == '1'
+        assert tmux('display-message', '-p', '-t', pane, '#{pane_current_command}') == 'sleep'
+    finally:
+        os.killpg(client.pid, signal.SIGTERM)
+        wait_terminal(client, master, timeout=5)
+        os.close(master)
+        os.close(slave)
+
+
+def test_orphan_views_are_closed_without_touching_fresh_views_or_sessions(server):
+    env, tmux = server
+    root = tmux('display-message', '-p', '-t', '=seed:', '#{session_id}')
+    views = []
+    for name in ('seed~view-1', 'seed~view-2'):
+        view = tmux('new-session', '-d', '-t', root, '-s', name, '-P', '-F', '#{session_id}')
+        tmux('set-option', '-t', view, '@pimux_view', 'seed')
+        tmux('set-option', '-t', view, '@pimux_origin', root)
+        views.append(view)
+    tmux('new-session', '-d', '-s', 'plain')
+    created = int(tmux('display-message', '-p', '-t', views[0] + ':', '#{session_created}'))
+    sweep = ['bash', '-c', 'fake_now=$2; source "$1"; configure_runtime; date() { printf "%s\\n" "$fake_now"; }; '
+             'sweep_orphan_views', 'test', str(SOURCE / 'bin/pimux')]
+    subprocess.run([*sweep, str(created + 30)], env=env, check=True, capture_output=True)
+    assert len(tmux('list-sessions', '-F', '#{session_id}').splitlines()) == 4
+    subprocess.run([*sweep, str(created + 120)], env=env, check=True, capture_output=True)
+    remaining = tmux('list-sessions', '-F', '#{session_name}').splitlines()
+    assert sorted(remaining) == ['plain', 'seed']
+    assert tmux('list-panes', '-t', '=seed', '-F', '#{pane_dead}') == '0'
 
 
 def test_installed_shell_applies_proxy_without_extra_setup(tmp_path):
