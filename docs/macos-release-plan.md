@@ -31,7 +31,7 @@ tested with Brew implementation 7.0.8, Bash 5.3.20, tmux 3.8, ncurses 6.6 and Py
 5.1+, tmux 3.2+ and Python 3.10+. The shared tmux version contract remains 3.2; use
 matched package-manager dependencies instead of new compatibility paths for 3.1.
 Intel and the minimum supported macOS version require actual matching CI/hardware
-results. The macos-14 workflow is preparation, not existing evidence of support.
+results. The macos-15 workflow is preparation, not existing evidence of support.
 
 ## Fixed local inputs and integration
 
