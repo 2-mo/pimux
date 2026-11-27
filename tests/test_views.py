@@ -7,12 +7,16 @@ from pathlib import Path
 import shutil
 import socket
 import subprocess
+import sys
+import time
 from types import SimpleNamespace
 
 import pytest
 from rich.console import Console
 
 from inspect_ui import Document, text
+import disk
+import manager_ui
 import ports
 import proxy_ui
 import network
@@ -283,6 +287,157 @@ def test_document_filters_and_scrolls_full_paths_and_handles_literal_controls():
     assert view.query == "" and view.offset == 0
     assert view.on_key("KEY_ESCAPE")
     assert "\x1b" not in text("\x1b[2Jhello").plain
+
+
+def test_disk_mounts_keep_one_whole_filesystem_per_device_and_hide_system_mounts():
+    sample = "\n".join([
+        r"22 1 8:4 / / rw,relatime shared:1 - ext4 /dev/sda4 rw",
+        r"23 22 0:5 / /proc rw - proc proc rw",
+        r"24 22 0:25 / /run rw - tmpfs tmpfs rw",
+        r"25 22 8:1 / /boot rw - ext4 /dev/sda1 rw",
+        r"26 22 259:2 / /data\040set rw - ext4 /dev/nvme1n1p1 rw",
+        r"27 22 259:2 /projects /srv/projects rw - ext4 /dev/nvme1n1p1 rw",
+        r"28 22 0:60 / /plstack rw - fuse.glusterfs 10.0.0.75:/vol01/plstack rw",
+        r"29 22 0:61 / /var/lib/docker/overlay2/abc/merged rw - overlay overlay rw",
+        r"30 22 0:62 / /plstack rw - nfs4 server:/new rw",
+    ])
+    assert [(mount.path, mount.kind, mount.hidden) for mount in disk.parse_mountinfo(sample)] == [
+        ("/", "ext4", False), ("/boot", "ext4", True), ("/data set", "ext4", False),
+        ("/plstack", "nfs4", False), ("/var/lib/docker/overlay2/abc/merged", "overlay", True)]
+    macos = "\n".join([
+        "/dev/disk3s1s1 on / (apfs, sealed, local, read-only, journaled)",
+        "devfs on /dev (devfs, local, nobrowse)",
+        "/dev/disk3s6 on /System/Volumes/VM (apfs, local, noexec, journaled, noatime, nobrowse)",
+        "map auto_home on /System/Volumes/Data/home (autofs, automounted, nobrowse)",
+        "/dev/disk5s1 on /Volumes/Research Data (apfs, local, nodev, nosuid, journaled, noowners)",
+    ])
+    assert [(mount.path, mount.hidden) for mount in disk.parse_macos_mounts(macos)] == [
+        ("/", False), ("/System/Volumes/VM", True), ("/Volumes/Research Data", False)]
+
+
+def test_disk_usage_reads_each_mount_and_isolates_a_stalled_one(tmp_path, monkeypatch):
+    usage = disk.read_usage([disk.Mount(str(tmp_path), "", "")])[str(tmp_path)]
+    native = os.statvfs(tmp_path)
+    assert usage.total == native.f_blocks * (native.f_frsize or native.f_bsize)
+    assert usage.free == native.f_bavail * (native.f_frsize or native.f_bsize)
+    stalled = f"import sys, time\nif sys.argv[1] == {str(tmp_path)!r}: time.sleep(30)\n"
+    monkeypatch.setattr(disk, "STATVFS", stalled + disk.STATVFS)
+    started = time.monotonic()
+    result = disk.read_usage([disk.Mount(str(tmp_path), "", ""), disk.Mount("/", "", "")], timeout=0.5)
+    assert time.monotonic() - started < 5
+    assert result[str(tmp_path)] is None and result["/"].total > 0
+
+
+@pytest.mark.parametrize("value,label", [(0, "0B"), (28 * 1024, "28K"), (int(9.96 * 1024 ** 3), "10G"),
+                                         (int(846.4 * 1024 ** 3), "847G"), (int(6.94 * 1024 ** 4), "7.0T")])
+def test_disk_sizes_round_up_like_df(value, label):
+    assert disk.size_label(value) == label
+    assert disk.percent_label(73.01) == "74%" and disk.percent_label(None) == "—"
+
+
+def test_disk_view_marks_current_directory_full_and_unanswered_mounts(monkeypatch):
+    monkeypatch.delenv("PIMUX_LANGUAGE", raising=False)
+    gib = 1024 ** 3
+    mounts = [disk.Mount("/", "/dev/sda4", "ext4"), disk.Mount("/boot", "/dev/sda1", "ext4", True),
+              disk.Mount("/data1", "/dev/nvme1n1p1", "ext4"), disk.Mount("/plstack", "server:/vol", "fuse.glusterfs")]
+    usage = {"/": disk.Usage(100 * gib, 74 * gib, 26 * gib, 1000, 70), "/boot": disk.Usage(gib, gib // 2, gib // 2, 10, 1),
+             "/data1": disk.Usage(100 * gib, 95 * gib, 5 * gib, 1000, 150), "/plstack": None}
+    monkeypatch.setattr(disk, "list_mounts", lambda: mounts)
+    monkeypatch.setattr(disk, "read_usage", lambda selected, timeout=2: {mount.path: usage[mount.path] for mount in selected})
+    view = disk.DiskView("/data1/project")
+
+    def rendered(width):
+        console = Console(width=width, file=io.StringIO(), record=True)
+        console.print(view.render(width, 20))
+        return console.export_text()
+
+    view.refresh(force=True)
+    for width in (100, 50):
+        output = rendered(width)
+        assert "/boot" not in output and "no response" in output and "/data1 ●" in output and "95%" in output
+    view.on_key("a")
+    assert "/boot" in rendered(100)
+    view.on_key("KEY_DOWN")
+    view.on_key("KEY_DOWN")
+    assert view.visible()[view.selected].path == "/data1"
+
+
+def test_folder_sizes_list_largest_first_navigate_and_reuse_results(tmp_path):
+    (tmp_path / "small").mkdir()
+    (tmp_path / "small/file").write_bytes(os.urandom(10_000))
+    (tmp_path / "large/inner").mkdir(parents=True)
+    (tmp_path / "large/inner/file").write_bytes(os.urandom(400_000))
+    view = disk.DiskView(str(tmp_path))
+
+    def finished():
+        deadline = time.monotonic() + 10
+        while view.scan.running and time.monotonic() < deadline:
+            time.sleep(0.05)
+        return view.scan.snapshot()
+
+    view.open_scan(str(tmp_path))
+    children, total, errors, failure = finished()
+    assert [os.path.basename(path) for _, path in children] == ["large", "small"]
+    assert total >= sum(size for size, _ in children) and not errors and not failure
+    view.on_key("KEY_ENTER")
+    assert view.scan.path == str(tmp_path / "large")
+    assert [os.path.basename(path) for _, path in finished()[0]] == ["inner"]
+    scan = view.scans[str(tmp_path)]
+    view.on_key("KEY_BACKSPACE")
+    assert view.scan is scan and not scan.running
+    console = Console(width=60, file=io.StringIO(), record=True)
+    console.print(view.render(60, 12))
+    assert "large/" in console.export_text()
+    assert not view.on_key("q") and view.scan is None
+    assert view.on_key("q")
+
+
+def test_folder_scan_stops_when_leaving_it(tmp_path, monkeypatch):
+    tools = tmp_path / "bin"
+    tools.mkdir()
+    (tools / "du").write_text("#!/bin/sh\nexec sleep 30\n")
+    (tools / "du").chmod(0o755)
+    monkeypatch.setenv("PATH", f"{tools}:{os.environ['PATH']}")
+    view = disk.DiskView(str(tmp_path))
+    view.open_scan(str(tmp_path))
+    process = view.scan.process
+    assert view.scan.running
+    view.on_key("KEY_ESCAPE")
+    assert view.scan is None and process.wait(timeout=5) != 0
+
+
+def test_menu_opens_disk_usage_and_terminal_reset(tmp_path):
+    for key, action in (("f", "disk"), ("m", "reset-terminal")):
+        result = tmp_path / action
+        assert Menu(result).on_key(key)
+        assert result.read_text().strip() == action
+
+
+def test_manager_marks_exited_silent_and_mouse_left_on_panes(monkeypatch):
+    monkeypatch.delenv("PIMUX_LANGUAGE", raising=False)
+    now = 1_800_000_000
+
+    def label(program, state, name="2:job"):
+        entry = manager_ui.Entry("work", name, program, "/srv", "", False, False, False, state=state)
+        return manager_ui.state_label(entry, now).plain
+
+    assert label("[python]", "1:1:0:000") == "exit 1"
+    assert label("[bash]", f"0::{now}:101") == "⚠ mouse on"
+    # A running full-screen program owns its mouse mode.
+    assert label("[codex]", f"0::{now}:101") == ""
+    assert label("[python]", f"0::{now - 16 * 86400}:000") == "idle 16d"
+    assert label("[watch]", f"0::{now - 59}:000") == ""
+    assert label("", "2", name="") == "  2 exited"
+
+
+def test_manager_protocol_carries_pane_state(monkeypatch, capsys):
+    monkeypatch.delenv("PIMUX_LANGUAGE", raising=False)
+    fields = ["100", "20", "0", "1", "0", "", "", "0", "0", "0", "manager", "0", "0", "1",
+              "work", "1:train", "[python]", "/srv", "", "", "", "1:2:0:000", "0", "0", "1"]
+    stream = io.BytesIO(("\0".join(fields) + "\0").encode())
+    monkeypatch.setattr(sys, "stdin", SimpleNamespace(buffer=stream))
+    assert manager_ui.main() == 0
+    assert "exit 2" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("url", ["", "host:99999", "ftp://host:1234", "http://host:0", "http://host/path", "http://host?x=y", "http://bad host:80"])

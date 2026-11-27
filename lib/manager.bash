@@ -29,13 +29,16 @@ toggle_session_pin() (
     mv -- "$temporary" "$file"
 )
 
+# Exited flag and status, last output time, then mouse reporting flags.
+PIMUX_PANE_STATE='#{pane_dead}:#{pane_dead_status}:#{window_activity}:#{mouse_any_flag}#{mouse_button_flag}#{mouse_standard_flag}'
+
 manager() (
     local client=${1:-} expand_current=${2:-} selected=0 offset=0 rows cols visible
-    local sid wid key answer name current='' error='' i count root resized=false
+    local sid wid key answer name current='' error='' i count root resized=false exited
     local query='' query_cursor=0 searching=false suggestion current_window='' current_pane='' preview_target window_count pane
     local navigation=false nav_index nav_position=0 nav_id=manager nav_focus=false nav_offset=0 sidebar_width=0 local_x
     local nav_identity nav_parent nav_key
-    local -a roots=() windows=() titles=() programs=() paths=() counts=() panes=() pane_indices=() pinned_ids=() other_ids=()
+    local -a roots=() windows=() titles=() programs=() paths=() counts=() panes=() pane_indices=() states=() pinned_ids=() other_ids=()
     local -a nav_ids=() nav_parents=() nav_keys=() nav_visible=()
     local -A nav_expanded=([workspace]=1 [resources]=1 [network]=1 [settings]=1)
     local -A expanded=() pinned=() names=()
@@ -62,22 +65,22 @@ manager() (
         enter_manager
     }
     manager_windows() {
-        local target=$1 wid title program path
+        local target=$1 wid title program state path
         # Sanitize C0/DEL before emitting records; ':' in POSIX classes is a tmux modifier separator.
-        while IFS=$'\t' read -r wid title program path; do
-            roots+=("$target"); windows+=("$wid"); titles+=("$title")
+        while IFS=$'\t' read -r wid title program state path; do
+            roots+=("$target"); windows+=("$wid"); titles+=("$title"); states+=("$state")
             programs+=("$program"); paths+=("$path"); counts+=(''); panes+=(''); pane_indices+=('')
-        done < <(tmux list-windows -t "$target" -F $'#{window_id}\t#{window_index}:#{s/[\001-\037\177]/ /:window_name}\t[#{s/[\001-\037\177]/ /:pane_current_command}]\t#{s/[\001-\037\177]/ /:pane_current_path}')
+        done < <(tmux list-windows -t "$target" -F $'#{window_id}\t#{window_index}:#{s/[\001-\037\177]/ /:window_name}\t[#{s/[\001-\037\177]/ /:pane_current_command}]\t'"$PIMUX_PANE_STATE"$'\t#{s/[\001-\037\177]/ /:pane_current_path}')
     }
     manager_panes() {
-        local target=$1 wid title pane index program path candidate
-        while IFS=$'\t' read -r wid title pane index program path; do
+        local target=$1 wid title pane index program state path candidate
+        while IFS=$'\t' read -r wid title pane index program state path; do
             candidate="${names[$target]} / $title / $index  $program  $path"
             [[ -z $query || ${candidate,,} == *"${query,,}"* ]] || continue
-            roots+=("$target"); windows+=("$wid"); titles+=("$title")
+            roots+=("$target"); windows+=("$wid"); titles+=("$title"); states+=("$state")
             panes+=("$pane"); pane_indices+=("$index")
             programs+=("$program"); paths+=("$path"); counts+=('')
-        done < <(tmux list-panes -s -t "$target" -F $'#{window_id}\t#{window_index}:#{s/[\001-\037\177]/ /:window_name}\t#{pane_id}\t#{pane_index}\t[#{s/[\001-\037\177]/ /:pane_current_command}]\t#{s/[\001-\037\177]/ /:pane_current_path}')
+        done < <(tmux list-panes -s -t "$target" -F $'#{window_id}\t#{window_index}:#{s/[\001-\037\177]/ /:window_name}\t#{pane_id}\t#{pane_index}\t[#{s/[\001-\037\177]/ /:pane_current_command}]\t'"$PIMUX_PANE_STATE"$'\t#{s/[\001-\037\177]/ /:pane_current_path}')
     }
     manager_navigation() {
         nav_visible=()
@@ -115,7 +118,8 @@ manager() (
                 [[ ${pinned[$row_name]:-} != 1 ]] || pin=1
                 [[ ${expanded[$row_sid]:-} != 1 ]] || expand=1
                 printf '%s\0' "$row_name" "${titles[index]}" "${programs[index]}" \
-                    "${paths[index]}" "${counts[index]}" "${panes[index]}" "${pane_indices[index]}" "$expand" "$pin" "$chosen"
+                    "${paths[index]}" "${counts[index]}" "${panes[index]}" "${pane_indices[index]}" "${states[index]}" \
+                    "$expand" "$pin" "$chosen"
             done
         } | (python_view manager_ui)
     }
@@ -137,14 +141,17 @@ manager() (
             if [[ ${pinned[$name]:-} == 1 ]]; then pinned_ids+=("$sid")
             else other_ids+=("$sid"); fi
         done < <(logical_sessions)
-        roots=(); windows=(); titles=(); programs=(); paths=(); counts=(); panes=(); pane_indices=()
+        roots=(); windows=(); titles=(); programs=(); paths=(); counts=(); panes=(); pane_indices=(); states=()
         for sid in "${pinned_ids[@]}" "${other_ids[@]}"; do
             if [[ $searching == true || -n $query ]]; then
                 manager_panes "$sid"
                 continue
             fi
-            window_count=$(tmux display-message -p -t "$sid:" '#{session_windows}') || continue
+            # One query per session: window count and an x for each exited pane.
+            IFS=$'\t' read -r window_count exited < <(tmux display-message -p -t "$sid:" \
+                $'#{session_windows}\t#{W:#{P:#{?pane_dead,x,}}}') || continue
             roots+=("$sid"); windows+=(''); titles+=(''); programs+=(''); paths+=(''); counts+=("$window_count"); panes+=(''); pane_indices+=('')
+            states+=("${#exited}")
             [[ ${expanded[$sid]:-} != 1 ]] || manager_windows "$sid"
         done
         count=${#roots[@]}
@@ -295,6 +302,7 @@ manager() (
                 else manager_view proxy_ui "${context[@]}"; fi
                 ;;
             g) manager_view gpu ;;
+            f) manager_view disk ;;
             t) manager_view ports ;;
             '?') manager_view utility_ui help "${PIMUX_COMMAND[0]}" "$PIMUX_TARGET_SOCKET" ;;
             $'\e[A'|$'\eOA'|k) (( selected == 0 )) || selected=$((selected - 1)) ;;

@@ -4,6 +4,7 @@
 from dataclasses import dataclass, replace
 import os
 import sys
+import time
 
 from rich.console import Group
 from rich.cells import cell_len
@@ -19,7 +20,9 @@ MUTED = "#8993a7"
 CYAN = "#63c5f8"
 PURPLE = "#b7a1e8"
 GREEN = "#9ccf9e"
+WARNING = "#e5a35b"
 SELECTED = "on #303b4e"
+SHELLS = {"bash", "zsh", "fish", "sh", "dash", "ksh"}
 
 
 @dataclass
@@ -34,6 +37,7 @@ class Entry:
     selected: bool
     pane: str = ""
     pane_index: str = ""
+    state: str = ""
 
 
 def path_label(value, width):
@@ -53,7 +57,31 @@ def path_label(value, width):
     return "…" + "".join(reversed(tail))
 
 
-def entry_row(entry, width, *, searching=False):
+def age_label(seconds):
+    for unit, size in (("d", 86400), ("h", 3600), ("m", 60)):
+        if seconds >= size:
+            return f"{seconds // size}{unit}"
+    return f"{seconds}s"
+
+
+def state_label(entry, now=None):
+    """Exited panes, mouse reporting left at a shell prompt, or long silence."""
+    if not entry.name:
+        exited = int(entry.state) if entry.state.isdigit() else 0
+        return text(tr(f"  {exited} exited", f"  {exited} 个已退出"), WARNING) if exited else Text("")
+    dead, status, activity, mouse = (entry.state.split(":") + ["", "", "", ""])[:4]
+    if dead == "1":
+        return text(tr(f"exit {status or '?'}", f"退出 {status or '?'}"), GREEN if status == "0" else "red")
+    if mouse.strip("0") and entry.program.strip("[]") in SHELLS:
+        return text(tr("⚠ mouse on", "⚠ 鼠标残留"), WARNING)
+    if activity.isdigit():
+        idle = int((now or time.time()) - int(activity))
+        if idle >= 3600:
+            return text(tr(f"idle {age_label(idle)}", f"{age_label(idle)} 无输出"), MUTED)
+    return Text("")
+
+
+def entry_row(entry, width, *, searching=False, state_column=False):
     row = text("▌" if entry.selected else " ", CYAN)
     if not entry.name:
         row.append("v " if entry.expanded else "> ", style=CYAN if entry.selected else MUTED)
@@ -61,6 +89,7 @@ def entry_row(entry, width, *, searching=False):
         row.append("  " + entry.count + " " + tr("window" if entry.count == "1" else "windows", "窗口"), style=MUTED)
         if entry.pinned:
             row.append("  *", style="bold color(215)")
+        row.append_text(state_label(entry))
         row.no_wrap, row.overflow = True, "ellipsis"
         if entry.selected:
             row.pad_right(max(0, width - row.cell_len))
@@ -79,8 +108,14 @@ def entry_row(entry, width, *, searching=False):
                Column(width=program_width, no_wrap=True, overflow="ellipsis")]
     cells = [row, text(entry.program, GREEN if entry.program not in {"[]", "[bash]", "[zsh]", "[sh]"} else MUTED)]
     if width >= 64:
+        # Rows share the state column whenever any visible row needs it.
+        state_width = 11 if state_column else 0
+        if state_column:
+            columns.append(Column(width=state_width, no_wrap=True, overflow="ellipsis"))
+            cells.append(state_label(entry))
         columns.append(Column(ratio=1, no_wrap=True, overflow="ellipsis"))
-        cells.append(text(path_label(entry.path, max(1, width - name_width - program_width - 4)),
+        cells.append(text(path_label(entry.path, max(1, width - name_width - program_width - state_width
+                                                     - 4 - 2 * state_column)),
                           "#b0bacb" if entry.selected else MUTED))
     table = Table.grid(*columns, padding=(0, 2), expand=True)
     table.add_row(*cells, style=SELECTED if entry.selected else "")
@@ -125,8 +160,9 @@ def render(entries, navigation, *, width, height, selected, count, query="", sea
         tree.append(navigation_row(node, expanded=expanded, last=last,
                                    selected=identity == nav_selected, focused=nav_focused,
                                    width=sidebar_width or width))
+    state_column = any(entry.name and state_label(entry).plain for entry in entries)
     session_rows = [entry_row(replace(entry, selected=entry.selected and not nav_focused),
-                              main_width, searching=bool(query)) for entry in entries]
+                              main_width, searching=bool(query), state_column=state_column) for entry in entries]
     if not count:
         session_rows.extend([Text(""), text(tr(" No matching panes" if query or searching else " No sessions yet",
                                                " 没有匹配的分屏" if query or searching else " 暂无会话"), "bold " + TEXT),
@@ -192,10 +228,10 @@ def main():
         navigation = [(next(fields), next(fields) == "1") for _ in range(int(next(fields)))]
         entries = []
         for _ in range(int(next(fields))):
-            session, name, program, path, windows, pane, pane_index = (
-                next(fields).replace("\n", "?").replace("\t", "?") for _ in range(7))
+            session, name, program, path, windows, pane, pane_index, state = (
+                next(fields).replace("\n", "?").replace("\t", "?") for _ in range(8))
             expanded, pinned, chosen = (next(fields) == "1" for _ in range(3))
-            entries.append(Entry(session, name, program, path, windows, expanded, pinned, chosen, pane, pane_index))
+            entries.append(Entry(session, name, program, path, windows, expanded, pinned, chosen, pane, pane_index, state))
     except (ValueError, StopIteration):
         return 2
     with console.capture() as capture:

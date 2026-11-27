@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Add `pimux disk` and **Resources → Disk usage**: capacity, usage bar and inode use per filesystem, rounded like `df -h`, with boot/tmpfs/container mounts hidden unless requested. Each mount is read in its own process with a two-second limit, so a stalled network mount shows no response instead of blocking the page. Folder sizes come from `du` only on request, stream largest first, stay on one filesystem and can be cancelled.
+- Turn off mouse reporting left by a crashed full-screen program at every PiMux shell prompt, keeping the last exit status. Add **Workspace → Reset mouse / screen modes** for shells started earlier; it acts only at a shell prompt.
+- Show exited panes, windows silent for an hour or more and shells still receiving mouse reports in the manager; collapsed sessions count their exited panes.
+- Back up only managed files edited since the previous installation, using recorded checksums; the installer's own earlier copies are replaced without new backups.
+- Close PiMux views left unattached by clients that disappeared without the detach hook, including views from older releases, when opening the manager or a session.
+
 ## 1.0.0-beta.2 (Mac prerelease)
 
 - Fix light-terminal text contrast across Rich views. Add persistent `pimux theme auto|light|dark`, an environment override, and theme diagnostics.
